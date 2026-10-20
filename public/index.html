@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f4f0e6">
+    <title>Local Job Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <style>
+      :root {
+        color-scheme: light;
+        --canvas: #f4f0e6;
+        --surface: #fffdf7;
+        --surface-raised: #ebe7db;
+        --ink: #293b2e;
+        --muted: #70796e;
+        --green: #526b50;
+        --green-hover: #40573f;
+        --green-soft: #e5ecdf;
+        --green-border: #cbd8c4;
+        --line: #dedacc;
+      }
+      body {
+        background:
+          radial-gradient(ellipse at top left, rgb(105 130 91 / 14%), transparent 35rem),
+          var(--canvas) !important;
+        color: var(--ink) !important;
+      }
+      input, select { color-scheme: light; }
+      .glass {
+        background: rgb(255 253 247 / 88%) !important;
+        border-color: var(--line) !important;
+        box-shadow: 0 12px 36px rgb(67 75 55 / 7%);
+        backdrop-filter: blur(16px);
+      }
+      .scrollbar::-webkit-scrollbar { height: 8px; width: 8px; }
+      .scrollbar::-webkit-scrollbar-thumb { background: #b9c2ad; border-radius: 999px; }
+
+      [class~="text-zinc-100"], [class~="text-zinc-200"], [class~="text-zinc-300"] { color: var(--ink) !important; }
+      [class~="text-zinc-400"], [class~="text-zinc-500"] { color: var(--muted) !important; }
+      [class~="text-zinc-600"] { color: #929183 !important; }
+      [class~="bg-zinc-950"], [class~="bg-zinc-950/60"] { background-color: var(--surface-raised) !important; }
+      [class~="bg-zinc-900/80"] { background-color: var(--surface-raised) !important; }
+      [class~="border-zinc-800"], [class~="border-zinc-700"] { border-color: var(--line) !important; }
+      [class~="border-zinc-500"]:hover, [class~="hover:border-zinc-500"]:hover { border-color: #a4b199 !important; }
+      [class~="divide-zinc-800/80"] > :not([hidden]) ~ :not([hidden]) { border-color: var(--line) !important; }
+      [class~="text-blue-400"] { color: var(--green) !important; }
+      [class~="bg-blue-600"] { background-color: var(--green) !important; }
+      [class~="hover:bg-blue-500"]:hover { background-color: var(--green-hover) !important; }
+      [class~="border-blue-500/20"] { border-color: var(--green-border) !important; }
+      [class~="bg-blue-500/10"] { background-color: var(--green-soft) !important; }
+      [class~="border-blue-500"]:focus, [class~="focus:border-blue-500"]:focus { border-color: var(--green) !important; }
+      [class~="focus:ring-blue-500/20"]:focus { --tw-ring-color: rgb(82 107 80 / 20%) !important; }
+      [class~="focus:ring-blue-400"]:focus { --tw-ring-color: #819476 !important; }
+      [class~="border-emerald-500/20"] { border-color: var(--green-border) !important; }
+      [class~="bg-emerald-500/5"] { background-color: var(--green-soft) !important; }
+      [class~="text-emerald-400"], [class~="bg-emerald-400"] { color: var(--green) !important; }
+      [class~="bg-emerald-400"] { background-color: #78916c !important; }
+      [class~="bg-emerald-700"] { background-color: var(--green) !important; }
+      [class~="hover:bg-emerald-600"]:hover { background-color: var(--green-hover) !important; }
+      [class~="border-yellow-500/20"] { border-color: #e2d3b2 !important; }
+      [class~="bg-yellow-500/10"] { background-color: #f3ead6 !important; }
+      [class~="text-yellow-400"] { color: #947143 !important; }
+      [class~="border-red-500/20"] { border-color: #e3c9bf !important; }
+      [class~="bg-red-500/10"] { background-color: #f4e6df !important; }
+      [class~="text-red-400"] { color: #a45e54 !important; }
+      [class~="text-white"], [class~="hover:text-white"]:hover { color: #fffdf7 !important; }
+    </style>
+  </head>
+  <body class="min-h-screen text-zinc-100 antialiased">
+    <main class="mx-auto max-w-7xl px-5 py-10 sm:px-8 lg:py-14">
+      <header class="mb-10 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="mb-3 text-xs font-semibold uppercase tracking-[0.24em] text-blue-400">Private, local dashboard</p>
+          <h1 class="text-3xl font-semibold tracking-tight sm:text-4xl">Job application tracker</h1>
+          <p class="mt-2 text-sm text-zinc-400">Track your pipeline and optionally catch up from Gmail.</p>
+        </div>
+        <div id="connection-state" class="flex items-center gap-2 self-start rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-xs text-zinc-400 sm:self-auto" role="status">
+          <span class="h-2 w-2 rounded-full bg-zinc-500"></span>Connecting to tracker
+        </div>
+      </header>
+
+      <section aria-label="Application statistics" class="mb-8 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <article class="glass rounded-2xl border border-zinc-800 p-5">
+          <p class="text-sm text-zinc-400">Total applications</p>
+          <p id="stat-total" class="mt-3 text-3xl font-semibold">—</p>
+        </article>
+        <article class="glass rounded-2xl border border-blue-500/20 p-5">
+          <p class="text-sm text-zinc-400">Applied</p>
+          <p id="stat-applied" class="mt-3 text-3xl font-semibold text-blue-400">—</p>
+        </article>
+        <article class="glass rounded-2xl border border-yellow-500/20 p-5">
+          <p class="text-sm text-zinc-400">Interviewing</p>
+          <p id="stat-interviewing" class="mt-3 text-3xl font-semibold text-yellow-400">—</p>
+        </article>
+        <article class="glass rounded-2xl border border-red-500/20 p-5">
+          <p class="text-sm text-zinc-400">Rejected</p>
+          <p id="stat-rejected" class="mt-3 text-3xl font-semibold text-red-400">—</p>
+        </article>
+      </section>
+
+      <section class="glass mb-8 rounded-2xl border border-zinc-800 p-5 sm:p-7" aria-labelledby="form-title">
+        <h2 id="form-title" class="text-lg font-semibold">Add an application</h2>
+        <p class="mt-1 text-sm text-zinc-400">Application records are stored in your local MongoDB.</p>
+        <form id="application-form" class="mt-5 grid gap-4 md:grid-cols-2 lg:grid-cols-[1fr_1fr_0.8fr_0.8fr_auto] lg:items-end">
+          <label class="block text-sm text-zinc-300">
+            Company
+            <input name="company" required maxlength="120" autocomplete="organization" placeholder="e.g. Acme Inc."
+              class="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3.5 py-3 text-sm outline-none placeholder:text-zinc-600 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20">
+          </label>
+          <label class="block text-sm text-zinc-300">
+            Role
+            <input name="role" required maxlength="120" placeholder="e.g. Product Designer"
+              class="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3.5 py-3 text-sm outline-none placeholder:text-zinc-600 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20">
+          </label>
+          <label class="block text-sm text-zinc-300">
+            Status
+            <select name="status" class="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3.5 py-3 text-sm outline-none focus:border-blue-500">
+              <option>Applied</option><option>Interviewing</option><option>Rejected</option>
+            </select>
+          </label>
+          <label class="block text-sm text-zinc-300">
+            Date
+            <input name="date" type="date" required class="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3.5 py-3 text-sm outline-none focus:border-blue-500">
+          </label>
+          <button type="submit" class="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:cursor-wait disabled:opacity-60">
+            Add application
+          </button>
+        </form>
+        <p id="form-message" class="mt-4 hidden text-sm" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="glass mb-8 rounded-2xl border border-zinc-800 p-5 sm:p-7" aria-labelledby="gmail-title">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 id="gmail-title" class="text-lg font-semibold">Optional Gmail catch-up</h2>
+            <p class="mt-1 max-w-2xl text-sm text-zinc-400">Read-only Gmail access runs in this tab. The access token stays in memory and is never written to browser storage or sent to this server.</p>
+          </div>
+          <span id="gmail-state" class="text-xs text-zinc-500" role="status">Not connected</span>
+        </div>
+        <div class="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
+          <label class="block text-sm text-zinc-300">
+            Google OAuth client ID
+            <input id="google-client-id" type="text" autocomplete="off" spellcheck="false" placeholder="Your Google OAuth web client ID"
+              class="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3.5 py-3 text-sm outline-none placeholder:text-zinc-600 focus:border-blue-500">
+          </label>
+          <button id="authorize-button" type="button" class="self-end rounded-xl border border-zinc-700 px-4 py-3 text-sm font-semibold text-zinc-200 hover:border-zinc-500">
+            Authorize Gmail
+          </button>
+          <button id="sync-button" type="button" disabled class="self-end rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50">
+            Sync messages
+          </button>
+          <button id="forget-button" type="button" disabled class="self-end rounded-xl border border-zinc-700 px-4 py-3 text-sm text-zinc-300 hover:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-50">
+            Disconnect
+          </button>
+        </div>
+        <p class="mt-3 text-xs leading-5 text-zinc-500">Create a Google OAuth Web application client ID and allow this page's origin. This app requests only the Gmail read-only scope. Disconnecting or closing the tab discards the in-memory access token.</p>
+        <p id="sync-message" class="mt-3 hidden text-sm" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="glass overflow-hidden rounded-2xl border border-zinc-800" aria-labelledby="list-title">
+        <div class="flex items-center justify-between gap-4 border-b border-zinc-800 px-5 py-5 sm:px-7">
+          <div>
+            <h2 id="list-title" class="text-lg font-semibold">Your pipeline</h2>
+            <p class="mt-1 text-sm text-zinc-400">Most recently added opportunities first.</p>
+          </div>
+          <button id="refresh-button" type="button" class="rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:border-zinc-500 hover:text-white">Refresh</button>
+        </div>
+        <div class="scrollbar overflow-x-auto">
+          <table class="w-full min-w-[620px] text-left text-sm">
+            <thead class="bg-zinc-950/60 text-xs uppercase tracking-wider text-zinc-500">
+              <tr>
+                <th scope="col" class="px-5 py-3.5 font-medium sm:px-7">Company / role</th>
+                <th scope="col" class="px-4 py-3.5 font-medium">Date</th>
+                <th scope="col" class="px-4 py-3.5 font-medium">Status</th>
+                <th scope="col" class="px-5 py-3.5 font-medium sm:px-7">Update</th>
+              </tr>
+            </thead>
+            <tbody id="application-list" class="divide-y divide-zinc-800/80"></tbody>
+          </table>
+        </div>
+        <div id="empty-state" class="hidden px-6 py-14 text-center">
+          <p class="font-medium text-zinc-300">No applications yet</p>
+          <p class="mt-1 text-sm text-zinc-500">Add your first opportunity above to get started.</p>
+        </div>
+      </section>
+      <p id="page-error" class="mt-4 hidden text-sm text-red-400" role="alert"></p>
+    </main>
+
+    <script>
+      const statuses = ['Applied', 'Interviewing', 'Rejected'];
+      const statusColors = {
+        Applied: 'border-blue-500/20 bg-blue-500/10 text-blue-400',
+        Interviewing: 'border-yellow-500/20 bg-yellow-500/10 text-yellow-400',
+        Rejected: 'border-red-500/20 bg-red-500/10 text-red-400',
+      };
+      const form = document.querySelector('#application-form');
+      const applicationList = document.querySelector('#application-list');
+      const pageError = document.querySelector('#page-error');
+      const formMessage = document.querySelector('#form-message');
+      const syncMessage = document.querySelector('#sync-message');
+      const gmailState = document.querySelector('#gmail-state');
+      let accessToken = null;
+      let tokenClient = null;
+
+      function showMessage(element, message, isError = false) {
+        element.textContent = message;
+        element.className = `mt-3 text-sm ${isError ? 'text-red-400' : 'text-emerald-400'}`;
+      }
+
+      async function request(url, options) {
+        const response = await fetch(url, options);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Request failed. Please try again.');
+        return data;
+      }
+
+      function makeCell(className, text) {
+        const cell = document.createElement('td');
+        cell.className = className;
+        cell.textContent = text;
+        return cell;
+      }
+
+      function renderApplications(applications) {
+        applicationList.replaceChildren();
+        document.querySelector('#empty-state').classList.toggle('hidden', applications.length !== 0);
+        for (const application of applications) {
+          const row = document.createElement('tr');
+          row.className = 'transition hover:bg-white/[0.02]';
+          const companyCell = document.createElement('td');
+          companyCell.className = 'px-5 py-4 sm:px-7';
+          const company = document.createElement('p');
+          company.className = 'font-medium text-zinc-100';
+          company.textContent = application.company;
+          const role = document.createElement('p');
+          role.className = 'mt-1 text-xs text-zinc-500';
+          role.textContent = application.role;
+          companyCell.append(company, role);
+          row.append(companyCell, makeCell('px-4 py-4 whitespace-nowrap text-zinc-400', application.date));
+
+          const statusCell = document.createElement('td');
+          statusCell.className = 'px-4 py-4';
+          const badge = document.createElement('span');
+          badge.className = `inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${statusColors[application.status]}`;
+          badge.textContent = application.status;
+          statusCell.append(badge);
+          row.append(statusCell);
+
+          const updateCell = document.createElement('td');
+          updateCell.className = 'px-5 py-4 sm:px-7';
+          const select = document.createElement('select');
+          select.setAttribute('aria-label', `Update status for ${application.company}, ${application.role}`);
+          select.className = 'rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-2 text-xs text-zinc-300 outline-none focus:border-blue-500';
+          for (const status of statuses) {
+            const option = document.createElement('option');
+            option.value = status;
+            option.textContent = status;
+            option.selected = status === application.status;
+            select.append(option);
+          }
+          select.addEventListener('change', async () => {
+            select.disabled = true;
+            try {
+              await request(`/apps/${encodeURIComponent(application.id)}/status`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: select.value }),
+              });
+              await loadDashboard();
+            } catch (error) {
+              showMessage(pageError, error.message, true);
+              select.disabled = false;
+            }
+          });
+          updateCell.append(select);
+          row.append(updateCell);
+          applicationList.append(row);
+        }
+      }
+
+      async function loadDashboard() {
+        const [stats, applications] = await Promise.all([request('/stats'), request('/apps')]);
+        document.querySelector('#stat-total').textContent = stats.total_applications;
+        document.querySelector('#stat-applied').textContent = stats.applied;
+        document.querySelector('#stat-interviewing').textContent = stats.interviewing;
+        document.querySelector('#stat-rejected').textContent = stats.rejected;
+        renderApplications(applications);
+        const state = document.querySelector('#connection-state');
+        state.replaceChildren(Object.assign(document.createElement('span'), { className: 'h-2 w-2 rounded-full bg-emerald-400' }), document.createTextNode('Connected to tracker'));
+        state.className = 'flex items-center gap-2 self-start rounded-full border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-400 sm:self-auto';
+        return stats;
+      }
+
+      function connectWebSocket() {
+        const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const socket = new WebSocket(`${protocol}//${location.host}`);
+        socket.addEventListener('open', () => {
+          document.querySelector('#connection-state').setAttribute('aria-label', 'Tracker connected; live updates enabled');
+        });
+        socket.addEventListener('message', event => {
+          try {
+            const update = JSON.parse(event.data);
+            if (!['application.created', 'application.updated'].includes(update.type)) return;
+            loadDashboard().catch(error => showMessage(pageError, error.message, true));
+            if (Notification.permission === 'granted') {
+              new Notification('Job tracker updated', {
+                body: `${update.application.company} — ${update.application.status}`,
+              });
+            }
+          } catch (error) {
+            showMessage(pageError, `Could not read a live update: ${error.message}`, true);
+          }
+        });
+        socket.addEventListener('close', () => {
+          window.setTimeout(connectWebSocket, 3000);
+        });
+        socket.addEventListener('error', () => socket.close());
+      }
+
+      form.elements.date.value = new Date().toISOString().slice(0, 10);
+      form.addEventListener('submit', async event => {
+        event.preventDefault();
+        if (!form.reportValidity()) return;
+        const button = form.querySelector('button[type="submit"]');
+        button.disabled = true;
+        try {
+          const values = Object.fromEntries(new FormData(form));
+          await request('/apps', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(values),
+          });
+          form.reset();
+          form.elements.date.value = new Date().toISOString().slice(0, 10);
+          showMessage(formMessage, 'Application added to your pipeline.');
+          await loadDashboard();
+        } catch (error) {
+          showMessage(formMessage, error.message, true);
+        } finally {
+          button.disabled = false;
+        }
+      });
+
+      document.querySelector('#refresh-button').addEventListener('click', () => {
+        loadDashboard().catch(error => showMessage(pageError, error.message, true));
+      });
+
+      document.querySelector('#authorize-button').addEventListener('click', () => {
+        const clientId = document.querySelector('#google-client-id').value.trim();
+        if (!clientId) {
+          showMessage(syncMessage, 'Enter your Google OAuth client ID first.', true);
+          return;
+        }
+        if (!window.google?.accounts?.oauth2) {
+          showMessage(syncMessage, 'Google Identity Services has not loaded. Check your network and try again.', true);
+          return;
+        }
+        tokenClient = window.google.accounts.oauth2.initTokenClient({
+          client_id: clientId,
+          scope: 'https://www.googleapis.com/auth/gmail.readonly',
+          callback: result => {
+            if (result.error || !result.access_token) {
+              accessToken = null;
+              document.querySelector('#sync-button').disabled = true;
+              gmailState.textContent = 'Authorization failed';
+              showMessage(syncMessage, result.error_description || result.error || 'Google did not provide an access token.', true);
+              return;
+            }
+            accessToken = result.access_token;
+            document.querySelector('#sync-button').disabled = false;
+            document.querySelector('#forget-button').disabled = false;
+            gmailState.textContent = 'Connected for this tab only';
+            showMessage(syncMessage, 'Gmail read-only access granted. The token is held in memory only.');
+          },
+          error_callback: error => {
+            gmailState.textContent = 'Authorization failed';
+            showMessage(syncMessage, error.message || 'Google authorization was cancelled or failed.', true);
+          },
+        });
+        tokenClient.requestAccessToken({ prompt: 'consent' });
+      });
+
+      async function gmailRequest(path) {
+        const response = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/${path}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error?.message || `Gmail API returned ${response.status}.`);
+        return result;
+      }
+
+      function decodeBody(value) {
+        if (!value) return '';
+        const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
+        const bytes = Uint8Array.from(atob(base64), character => character.charCodeAt(0));
+        return new TextDecoder().decode(bytes);
+      }
+
+      function extractPlainText(part) {
+        if (!part) return '';
+        const current = part.mimeType === 'text/plain' ? decodeBody(part.body?.data) : '';
+        return [current, ...(part.parts || []).map(extractPlainText)].filter(Boolean).join('\n');
+      }
+
+      function headerValue(headers, name) {
+        return headers?.find(header => header.name?.toLowerCase() === name.toLowerCase())?.value || '';
+      }
+
+      function companyFromSender(sender) {
+        const displayName = sender.match(/^"?([^"<]+)"?\s*</)?.[1]?.trim();
+        if (displayName) return displayName.slice(0, 120);
+        const email = sender.match(/[\w.+-]+@([\w.-]+)/)?.[1] || '';
+        return (email.split('.')[0] || 'Unknown company').replace(/[-_]/g, ' ').slice(0, 120);
+      }
+
+      function statusFromMessage(text) {
+        const content = text.toLowerCase();
+        if (/\b(unfortunately|not moving forward|not selected|regret to inform|application was rejected)\b/.test(content)) return 'Rejected';
+        if (/\b(interview|schedule a call|technical assessment|next round)\b/.test(content)) return 'Interviewing';
+        if (/\b(application received|received your application|thank you for applying|thanks for applying|confirming your application)\b/.test(content)) return 'Applied';
+        return null;
+      }
+
+      async function syncGmail() {
+        const syncButton = document.querySelector('#sync-button');
+        syncButton.disabled = true;
+        syncMessage.classList.add('hidden');
+        const startedAt = Math.floor(Date.now() / 1000);
+        let imported = 0;
+        try {
+          const stats = await request('/stats');
+          const thirtyDaysAgo = startedAt - (30 * 24 * 60 * 60);
+          const afterTimestamp = Math.max(stats.last_sync_timestamp || 0, thirtyDaysAgo);
+          const query = [
+            `after:${afterTimestamp}`,
+            '{ "thank you for applying" "thanks for applying" "application received" "received your application" unfortunately "not moving forward" "not selected" "regret to inform" interview "schedule a call" "technical assessment" "next round" }',
+          ].join(' ');
+          let pageToken = null;
+
+          do {
+            const params = new URLSearchParams({ q: query, maxResults: '100' });
+            if (pageToken) params.set('pageToken', pageToken);
+            const listing = await gmailRequest(`messages?${params}`);
+            for (const message of listing.messages || []) {
+              const detail = await gmailRequest(`messages/${encodeURIComponent(message.id)}?format=full`);
+              const headers = detail.payload?.headers || [];
+              const subject = headerValue(headers, 'Subject') || 'Job application';
+              const sender = headerValue(headers, 'From');
+              const body = extractPlainText(detail.payload) || detail.snippet || '';
+              const status = statusFromMessage(`${subject}\n${body}`);
+              if (!status) continue;
+              const emailDate = new Date(Number(detail.internalDate) || Date.now());
+              const date = Number.isNaN(emailDate.getTime()) ? new Date().toISOString().slice(0, 10) : emailDate.toISOString().slice(0, 10);
+              const role = subject.replace(/^(re|fwd?):\s*/i, '').slice(0, 120) || 'Job application';
+              await request('/apps', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  company: companyFromSender(sender),
+                  role,
+                  status,
+                  date,
+                  sourceId: `gmail:${message.id}`,
+                }),
+              });
+              imported += 1;
+            }
+            pageToken = listing.nextPageToken || null;
+          } while (pageToken);
+
+          const checkpoint = Math.max(1, startedAt - 1);
+          await request('/sync-checkpoint', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ timestamp: checkpoint }),
+          });
+          await loadDashboard();
+          showMessage(syncMessage, `Sync complete. ${imported} matching message${imported === 1 ? '' : 's'} added or already tracked.`);
+        } catch (error) {
+          showMessage(syncMessage, `Gmail sync did not complete; its checkpoint was not advanced. ${error.message}`, true);
+        } finally {
+          syncButton.disabled = !accessToken;
+        }
+      }
+
+      document.querySelector('#sync-button').addEventListener('click', syncGmail);
+      document.querySelector('#forget-button').addEventListener('click', () => {
+        const tokenToRevoke = accessToken;
+        accessToken = null;
+        tokenClient = null;
+        document.querySelector('#sync-button').disabled = true;
+        document.querySelector('#forget-button').disabled = true;
+        gmailState.textContent = 'Disconnected';
+        if (!tokenToRevoke || !window.google?.accounts?.oauth2?.revoke) {
+          showMessage(syncMessage, 'The in-memory access token was discarded.');
+          return;
+        }
+        window.google.accounts.oauth2.revoke(tokenToRevoke, result => {
+          if (result?.error) {
+            showMessage(syncMessage, 'The in-memory token was discarded, but Google could not revoke its authorization. Remove this app from your Google Account permissions.', true);
+            return;
+          }
+          showMessage(syncMessage, 'Gmail disconnected and its access token revoked.');
+        });
+      });
+      loadDashboard().catch(error => showMessage(pageError, error.message, true));
+      connectWebSocket();
+    </script>
+  </body>
+</html>
