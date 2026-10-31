@@ -199,6 +199,7 @@
         font-weight: 500;
       }
       .timeline-entry.is-rejected { background: #f9e7e4; border-radius: 6px; }
+      .timeline-entry.is-interviewing { background: #faf2d5; border-radius: 6px; }
       .timeline-status {
         overflow: hidden;
         color: var(--muted);
@@ -206,6 +207,7 @@
         white-space: nowrap;
       }
       .timeline-status.is-rejected { color: #a45e54; }
+      .timeline-status.is-interviewing { color: #80651f; }
       .timeline-empty {
         margin: 8px 0 0;
         color: var(--muted);
@@ -395,6 +397,23 @@
           <p id="form-message" class="mt-4 hidden text-sm" role="status" aria-live="polite"></p>
         </section>
 
+        <section class="glass mb-8 rounded-2xl border border-zinc-800 p-5 sm:p-7" aria-labelledby="import-title">
+          <h2 id="import-title" class="text-lg font-semibold">Import applications from JSON</h2>
+          <p class="mt-1 text-sm text-zinc-400">Importing replaces the current applications shown in Home and Pipeline. Your Gmail sync checkpoint is kept.</p>
+          <form id="import-form" class="mt-5 flex flex-col gap-3 sm:flex-row sm:items-end">
+            <label class="block flex-1 text-sm text-zinc-300">
+              JSON file
+              <input id="import-file" name="file" type="file" accept=".json,application/json" required
+                class="mt-2 block w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3.5 py-3 text-sm text-zinc-300 file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-800 file:px-3 file:py-2 file:text-sm file:font-medium file:text-white">
+            </label>
+            <button type="submit" class="rounded-xl bg-emerald-800 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60">
+              Import JSON
+            </button>
+          </form>
+          <p class="mt-3 text-xs leading-5 text-zinc-500">Choose an application array or an app-store object with an <code>applications</code> array. Each record needs company, role, status, and a YYYY-MM-DD date.</p>
+          <p id="import-message" class="mt-4 hidden text-sm" role="status" aria-live="polite"></p>
+        </section>
+
         <section class="glass mb-8 rounded-2xl border border-zinc-800 p-5 sm:p-7" aria-labelledby="gmail-title">
           <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -438,6 +457,9 @@
       const timelineList = document.querySelector('#timeline-list');
       const pageError = document.querySelector('#page-error');
       const formMessage = document.querySelector('#form-message');
+      const importForm = document.querySelector('#import-form');
+      const importFile = document.querySelector('#import-file');
+      const importMessage = document.querySelector('#import-message');
       const syncMessage = document.querySelector('#sync-message');
       const gmailState = document.querySelector('#gmail-state');
       const tabButtons = [...document.querySelectorAll('[role="tab"]')];
@@ -507,7 +529,9 @@
         const orderedMonths = [...months.entries()].sort(([first], [second]) => second.localeCompare(first));
         const sortedApplications = orderedMonths.flatMap(([, monthApplications]) =>
           monthApplications.sort((first, second) =>
-            first.date.localeCompare(second.date) || first.company.localeCompare(second.company)));
+            second.date.localeCompare(first.date) ||
+            second.createdAt.localeCompare(first.createdAt) ||
+            first.company.localeCompare(second.company)));
         const pageCount = Math.max(1, Math.ceil(sortedApplications.length / 10));
         timelinePage = Math.min(timelinePage, pageCount - 1);
         const pageApplications = sortedApplications.slice(timelinePage * 10, (timelinePage + 1) * 10);
@@ -529,7 +553,9 @@
         for (const [monthKey, visibleApplications] of pageMonths) {
           const monthApplications = months.get(monthKey);
           monthApplications.sort((first, second) =>
-            first.date.localeCompare(second.date) || first.company.localeCompare(second.company));
+            second.date.localeCompare(first.date) ||
+            second.createdAt.localeCompare(first.createdAt) ||
+            first.company.localeCompare(second.company));
 
           const [year, month] = monthKey.split('-').map(Number);
           const monthSection = document.createElement('section');
@@ -539,7 +565,9 @@
           const monthName = document.createElement('h2');
           monthName.className = 'timeline-month-name';
           const monthLabel = new Intl.DateTimeFormat('en', { month: 'long' }).format(new Date(year, month - 1, 1));
-          monthName.textContent = years.size > 1 ? `${monthLabel} ${year}` : monthLabel;
+          const monthTitle = years.size > 1 ? `${monthLabel} ${year}` : monthLabel;
+          monthName.textContent = `${monthTitle} (${monthApplications.length})`;
+          monthName.setAttribute('aria-label', `${monthTitle}, ${monthApplications.length} applications`);
           monthHeader.append(monthName);
 
           const counts = { Applied: 0, Interviewing: 0, Rejected: 0 };
@@ -574,9 +602,10 @@
             role.className = 'timeline-role';
             role.textContent = application.role;
             const status = document.createElement('span');
-            status.className = `timeline-status${application.status === 'Rejected' ? ' is-rejected' : ''}`;
+            status.className = `timeline-status${application.status === 'Rejected' ? ' is-rejected' : application.status === 'Interviewing' ? ' is-interviewing' : ''}`;
             status.textContent = application.status === 'Interviewing' ? 'Ongoing' : application.status;
             if (application.status === 'Rejected') entry.classList.add('is-rejected');
+            if (application.status === 'Interviewing') entry.classList.add('is-interviewing');
             entry.append(date, company, role, status);
             entries.append(entry);
           }
@@ -727,29 +756,6 @@
         return stats;
       }
 
-      function connectWebSocket() {
-        const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const socket = new WebSocket(`${protocol}//${location.host}`);
-        socket.addEventListener('message', event => {
-          try {
-            const update = JSON.parse(event.data);
-            if (!['application.created', 'application.updated'].includes(update.type)) return;
-            loadDashboard().catch(error => showMessage(pageError, error.message, true));
-            if (Notification.permission === 'granted') {
-              new Notification('Job tracker updated', {
-                body: `${update.application.company} — ${update.application.status}`,
-              });
-            }
-          } catch (error) {
-            showMessage(pageError, `Could not read a live update: ${error.message}`, true);
-          }
-        });
-        socket.addEventListener('close', () => {
-          window.setTimeout(connectWebSocket, 3000);
-        });
-        socket.addEventListener('error', () => socket.close());
-      }
-
       form.elements.date.value = new Date().toISOString().slice(0, 10);
       form.addEventListener('submit', async event => {
         event.preventDefault();
@@ -776,6 +782,38 @@
       });
 
       document.querySelector('#cancel-edit-button').addEventListener('click', resetApplicationForm);
+
+      importForm.addEventListener('submit', async event => {
+        event.preventDefault();
+        const file = importFile.files[0];
+        if (!file) return;
+        const button = importForm.querySelector('button[type="submit"]');
+        if (!window.confirm('This will replace all current applications. Continue?')) return;
+        button.disabled = true;
+        try {
+          if (file.size > 2 * 1024 * 1024) {
+            throw new Error('JSON files must be 2 MB or smaller.');
+          }
+          let contents;
+          try {
+            contents = JSON.parse(await file.text());
+          } catch {
+            throw new Error('The selected file is not valid JSON.');
+          }
+          const result = await request('/apps/import', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(contents),
+          });
+          importForm.reset();
+          await loadDashboard();
+          showMessage(importMessage, `Imported ${result.imported} application${result.imported === 1 ? '' : 's'} into Home and Pipeline.`);
+        } catch (error) {
+          showMessage(importMessage, error.message, true);
+        } finally {
+          button.disabled = false;
+        }
+      });
 
       document.querySelector('#refresh-button').addEventListener('click', () => {
         loadDashboard().catch(error => showMessage(pageError, error.message, true));
@@ -940,7 +978,6 @@
         });
       });
       loadDashboard().catch(error => showMessage(pageError, error.message, true));
-      connectWebSocket();
     </script>
   </body>
 </html>
