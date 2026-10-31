@@ -418,7 +418,7 @@
           <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 id="gmail-title" class="text-lg font-semibold">Sync from Google</h2>
-              <p class="mt-1 max-w-2xl text-sm text-zinc-400">Read-only Gmail access runs in this tab. The access token stays in memory and is never written to browser storage or sent to this server.</p>
+              <p class="mt-1 max-w-2xl text-sm text-zinc-400">Read-only sync groups matching Updates messages by company and role, updating the application as new replies arrive. Unknown companies use the sender email; unknown roles show as N/A. The access token stays in this tab and is never sent to this server.</p>
             </div>
             <span id="gmail-state" class="text-xs text-zinc-500" role="status">Not connected</span>
           </div>
@@ -882,16 +882,50 @@
 
       function companyFromSender(sender) {
         const displayName = sender.match(/^"?([^"<]+)"?\s*</)?.[1]?.trim();
-        if (displayName) return displayName.slice(0, 120);
-        const email = sender.match(/[\w.+-]+@([\w.-]+)/)?.[1] || '';
-        return (email.split('.')[0] || 'Unknown company').replace(/[-_]/g, ' ').slice(0, 120);
+        const email = sender.match(/[\w.+-]+@[\w.-]+/)?.[0] || '';
+        const cleanedName = displayName
+          ?.replace(/\s+(?:hiring(?:\s+team)?|careers?|recruiting(?:\s+team)?|talent acquisition|jobs?)\s*$/i, '')
+          .trim();
+        const genericSender = /^(?:hr|human resources|recruiting|talent acquisition|noreply|no[- ]?reply|notifications?|workable|greenhouse|lever|indeed|linkedin|smartrecruiters|ashby|teamtailor|jobvite|bamboohr)(?:\b|$)/i;
+        if (cleanedName && !genericSender.test(cleanedName)) return cleanedName.slice(0, 120);
+        return (email || 'Unknown company').slice(0, 120);
+      }
+
+      function companyFromMessage(subject, sender) {
+        const patterns = [
+          /(?:thank you|thanks) for applying to\s+(.+?)(?:[.!?]|$)/i,
+          /(?:thank you|thanks) for applying for .+?\s+(?:at|with)\s+(.+?)(?:[.!?]|$)/i,
+          /(?:great that (?:you['’]re|you are) interested in|(?:you['’]re|you are) interested in)\s+(.+?)(?:[.!?]|$)/i,
+          /taking\s+(.+?)'s\s+(?:technical|online|coding)\s+assessment/i,
+        ];
+        for (const pattern of patterns) {
+          const match = subject.match(pattern);
+          if (match?.[1]) {
+            return match[1].replace(/^(?:the)\s+/i, '').replace(/^["'\s]+|["'\s]+$/g, '').slice(0, 120);
+          }
+        }
+        return companyFromSender(sender);
+      }
+
+      function roleFromSubject(subject) {
+        const patterns = [
+          /\b(?:application|applying) for\s+(.+?)\s+(?:at|with)\s+.+$/i,
+          /\b(?:position|role):\s*(.+?)(?:\s+(?:at|with)\s+.+)?$/i,
+          /\btechnical assessment(?:\s*\([^)]*\))?\s*[-:–]\s*(.+?)(?:[.!?]|$)/i,
+          /\b(?:interview|assessment) for\s+(.+?)(?:\s+(?:at|with)\s+.+)?$/i,
+        ];
+        for (const pattern of patterns) {
+          const match = subject.match(pattern);
+          if (match?.[1]) return match[1].replace(/^["'\s]+|["'\s]+$/g, '').slice(0, 120);
+        }
+        return 'N/A';
       }
 
       function statusFromMessage(text) {
         const content = text.toLowerCase();
-        if (/\b(unfortunately|not moving forward|not selected|regret to inform|application was rejected)\b/.test(content)) return 'Rejected';
-        if (/\b(interview|schedule a call|technical assessment|next round)\b/.test(content)) return 'Interviewing';
-        if (/\b(application received|received your application|thank you for applying|thanks for applying|confirming your application)\b/.test(content)) return 'Applied';
+        if (/\b(regret to inform|not moving forward|not selected|application (?:was|has been) (?:unsuccessful|rejected)|decided not to proceed|will not be moving forward|won't be moving forward|move forward with other candidates|proceed with other candidates|position has been filled)\b/.test(content)) return 'Rejected';
+        if (/\b(invite(?:d)? (?:you )?to (?:an? )?interview|interview invitation|schedule(?:d)? (?:an? )?interview|technical assessment|next round interview)\b/.test(content)) return 'Interviewing';
+        if (/\b(application received|received your application|thank you for applying|thanks for applying|confirming your application|application (?:was )?submitted)\b/.test(content)) return 'Applied';
         return null;
       }
 
@@ -900,14 +934,17 @@
         syncButton.disabled = true;
         syncMessage.classList.add('hidden');
         const startedAt = Math.floor(Date.now() / 1000);
-        let imported = 0;
+        let added = 0;
+        let updated = 0;
+        let alreadyTracked = 0;
         try {
           const stats = await request('/stats');
           const thirtyDaysAgo = startedAt - (30 * 24 * 60 * 60);
           const afterTimestamp = Math.max(stats.last_sync_timestamp || 0, thirtyDaysAgo);
           const query = [
+            'category:updates',
             `after:${afterTimestamp}`,
-            '{ "thank you for applying" "thanks for applying" "application received" "received your application" unfortunately "not moving forward" "not selected" "regret to inform" interview "schedule a call" "technical assessment" "next round" }',
+            '{ "thank you for applying" "thanks for applying" "application received" "received your application" "confirming your application" "application submitted" "application was submitted" "regret to inform" "not moving forward" "not selected" "application was unsuccessful" "application has been unsuccessful" "application was rejected" "application has been rejected" "decided not to proceed" "will not be moving forward" "won\'t be moving forward" "move forward with other candidates" "proceed with other candidates" "position has been filled" "invite you to interview" "invited to interview" "interview invitation" "schedule an interview" "scheduled an interview" "technical assessment" "next round interview" }',
           ].join(' ');
           let pageToken = null;
 
@@ -923,21 +960,25 @@
               const body = extractPlainText(detail.payload) || detail.snippet || '';
               const status = statusFromMessage(`${subject}\n${body}`);
               if (!status) continue;
-              const emailDate = new Date(Number(detail.internalDate) || Date.now());
+              const emailTimestamp = Number(detail.internalDate) || Date.now();
+              const emailDate = new Date(emailTimestamp);
               const date = Number.isNaN(emailDate.getTime()) ? new Date().toISOString().slice(0, 10) : emailDate.toISOString().slice(0, 10);
-              const role = subject.replace(/^(re|fwd?):\s*/i, '').slice(0, 120) || 'Job application';
-              await request('/apps', {
+              const cleanSubject = subject.replace(/^(re|fwd?):\s*/i, '');
+              const result = await request('/apps/gmail-sync', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  company: companyFromSender(sender),
-                  role,
+                  company: companyFromMessage(cleanSubject, sender),
+                  role: roleFromSubject(cleanSubject),
                   status,
                   date,
-                  sourceId: `gmail:${message.id}`,
+                  messageId: message.id,
+                  emailTimestamp,
                 }),
               });
-              imported += 1;
+              if (result.created) added += 1;
+              else if (result.updated) updated += 1;
+              else alreadyTracked += 1;
             }
             pageToken = listing.nextPageToken || null;
           } while (pageToken);
@@ -949,7 +990,7 @@
             body: JSON.stringify({ timestamp: checkpoint }),
           });
           await loadDashboard();
-          showMessage(syncMessage, `Sync complete. ${imported} matching message${imported === 1 ? '' : 's'} added or already tracked.`);
+          showMessage(syncMessage, `Sync complete: ${added} added, ${updated} updated, ${alreadyTracked} already tracked.`);
         } catch (error) {
           showMessage(syncMessage, `Gmail sync did not complete; its checkpoint was not advanced. ${error.message}`, true);
         } finally {

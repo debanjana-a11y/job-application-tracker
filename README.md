@@ -21,7 +21,7 @@ npm start
 
 Open [http://127.0.0.1:3000](http://127.0.0.1:3000). Set `DATA_DIR` to change the directory used for the JSON file.
 
-To enable Gmail sync, enter a Google OAuth Web application client ID in Settings and allow the page's origin. The app requests read-only Gmail access; its access token stays in the browser tab's memory.
+To enable Gmail sync, enter a Google OAuth Web application client ID in Settings and allow the page's origin. The app requests read-only Gmail access; its access token stays in the browser tab's memory. Sync searches only specific application-related phrases in Gmail's Updates category from the last 30 days or since the last successful sync, whichever is more recent. It adds one record per detected company and role, updating the status when later messages arrive. The company falls back to the sender's email address and the role to `N/A` when they cannot be identified confidently. Sync never modifies or deletes email. Generic mentions such as “unfortunately” or “interview” alone are not treated as application updates.
 
 ## Run with Docker Compose
 

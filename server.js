@@ -1,5 +1,5 @@
 import express from 'express';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -143,6 +143,121 @@ function publicApplication(application) {
 		createdAt: application.createdAt,
 	};
 }
+
+function gmailApplicationSourceId(company, role) {
+	const identity = `${company.trim().toLowerCase()}\0${role.trim().toLowerCase()}`;
+	const hash = createHash('sha256').update(identity).digest('hex');
+	return `gmail-application:${hash}`;
+}
+
+app.post('/apps/gmail-sync', async (req, res, next) => {
+	const company = cleanText(req.body?.company, 120);
+	const role = cleanText(req.body?.role, 120);
+	const { status, date, messageId } = req.body ?? {};
+	const emailTimestamp = Number(req.body?.emailTimestamp);
+	if (!company || !role) {
+		return res.status(400).json({ error: 'A company and role are required.' });
+	}
+	if (!validStatuses.includes(status) || !validDate(date)) {
+		return res.status(400).json({ error: 'Provide a valid status and YYYY-MM-DD date.' });
+	}
+	if (
+		typeof messageId !== 'string' ||
+		!messageId.trim() ||
+		messageId.length > 200 ||
+		!Number.isSafeInteger(emailTimestamp) ||
+		emailTimestamp <= 0 ||
+		emailTimestamp > Date.now()
+	) {
+		return res.status(400).json({ error: 'Invalid Gmail message ID or timestamp.' });
+	}
+
+	try {
+		const application = await updateStore(store => {
+			const alreadyImported = store.applications.find(
+				item =>
+					item.sourceId === `gmail:${messageId}` ||
+					item.gmailMessageIds?.includes(messageId),
+			);
+			if (alreadyImported) {
+				return { application: alreadyImported, created: false, updated: false };
+			}
+
+			let sourceId = gmailApplicationSourceId(company, role);
+			let existing = store.applications.find(item => item.sourceId === sourceId);
+			if (!existing) {
+				const candidates = store.applications.filter(
+					item =>
+						typeof item.sourceId === 'string' &&
+						(item.sourceId.startsWith('gmail:') ||
+							item.sourceId.startsWith('gmail-application:')) &&
+						item.company.trim().toLowerCase() === company.toLowerCase() &&
+						(item.role.trim().toLowerCase() === role.toLowerCase() ||
+							item.role.trim().toLowerCase() === 'n/a' ||
+							role.toLowerCase() === 'n/a'),
+				);
+				if (candidates.length === 1) existing = candidates[0];
+			}
+
+			if (!existing) {
+				const created = {
+					id: randomUUID(),
+					company,
+					role,
+					status,
+					date,
+					createdAt: new Date().toISOString(),
+					sourceId,
+					gmailMessageIds: [messageId],
+					sourceUpdatedAt: emailTimestamp,
+				};
+				store.applications.push(created);
+				return { application: created, created: true, updated: false };
+			}
+
+			const gmailMessageIds = Array.isArray(existing.gmailMessageIds)
+				? existing.gmailMessageIds
+				: [];
+			if (
+				existing.sourceId.startsWith('gmail:') &&
+				!gmailMessageIds.includes(existing.sourceId.slice('gmail:'.length))
+			) {
+				gmailMessageIds.push(existing.sourceId.slice('gmail:'.length));
+			}
+			gmailMessageIds.push(messageId);
+
+			const sourceUpdatedAt = Number(existing.sourceUpdatedAt) ||
+				Date.parse(`${existing.date}T00:00:00.000Z`);
+			const isNewerMessage = emailTimestamp >= sourceUpdatedAt;
+			const nextRole =
+				existing.role.trim().toLowerCase() === 'n/a' && role.toLowerCase() !== 'n/a'
+					? role
+					: existing.role;
+			sourceId = gmailApplicationSourceId(company, nextRole);
+			existing.company = company;
+			existing.role = nextRole;
+			existing.sourceId = sourceId;
+			existing.gmailMessageIds = gmailMessageIds;
+			if (isNewerMessage) {
+				existing.status = status;
+				existing.date = date;
+				existing.sourceUpdatedAt = emailTimestamp;
+			}
+			return {
+				application: existing,
+				created: false,
+				updated: isNewerMessage,
+			};
+		});
+		res.json({
+			application: publicApplication(application.application),
+			created: application.created,
+			updated: application.updated,
+		});
+	} catch (error) {
+		next(error);
+	}
+});
 
 app.get('/stats', async (req, res, next) => {
 	try {
