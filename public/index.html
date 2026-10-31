@@ -37,6 +37,232 @@
       .scrollbar::-webkit-scrollbar { height: 8px; width: 8px; }
       .scrollbar::-webkit-scrollbar-thumb { background: #b9c2ad; border-radius: 999px; }
 
+      [hidden] { display: none !important; }
+      .app-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 20px;
+        margin-bottom: 20px;
+      }
+      .app-title {
+        margin: 0;
+        color: var(--ink);
+        font-size: 30px;
+        font-weight: 600;
+        letter-spacing: -0.025em;
+        line-height: 1.15;
+      }
+      .app-subtitle {
+        margin: 8px 0 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .app-header-tools {
+        display: flex;
+        align-items: flex-end;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .tabs {
+        display: flex;
+        gap: 6px;
+        width: fit-content;
+        margin-bottom: 0;
+        padding: 5px;
+        border: 1px solid #293b2e;
+        border-radius: 12px;
+        background: #293b2e;
+      }
+      .tab-button {
+        border: 0;
+        border-radius: 8px;
+        padding: 8px 14px;
+        background: transparent;
+        color: #f4f0e6;
+        font: inherit;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .tab-button:hover { background: rgb(255 253 247 / 12%); }
+      .tab-button[aria-selected="true"] {
+        background: #526b50;
+        color: #fffdf7;
+      }
+      .tab-button:focus-visible {
+        outline: 3px solid rgb(82 107 80 / 32%);
+        outline-offset: 2px;
+      }
+      .tab-panel:focus { outline: none; }
+      .app-total {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+        text-align: right;
+      }
+      @media (max-width: 520px) {
+        .app-header { align-items: flex-start; flex-direction: column; }
+        .app-header-tools { align-items: flex-start; width: 100%; }
+        .tabs { display: flex; width: 100%; justify-content: flex-start; }
+        .tab-button { padding-inline: 12px; }
+        .app-total { text-align: left; }
+      }
+
+      .timeline-card {
+        display: flex;
+        width: 100%;
+        min-height: calc(100vh - 220px);
+        flex-direction: column;
+        overflow: visible;
+        padding: 24px;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: rgb(255 253 247 / 88%);
+        box-shadow: 0 12px 36px rgb(67 75 55 / 7%);
+        backdrop-filter: blur(16px);
+        color: var(--ink);
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      }
+      .timeline-home-title {
+        margin: 0 0 18px;
+        color: var(--ink);
+        font-size: 22px;
+        font-weight: 600;
+      }
+      .timeline-body {
+        flex: 1;
+        padding: 0 0 48px;
+      }
+      .timeline-list { display: grid; }
+      .timeline-month + .timeline-month { margin-top: 20px; }
+      .timeline-month-header {
+        display: flex;
+        min-height: 17px;
+        align-items: center;
+        gap: 18px;
+        margin-bottom: 8px;
+      }
+      .timeline-month-name {
+        flex: 0 0 86px;
+        margin: 0;
+        color: var(--ink);
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 17px;
+      }
+      .timeline-month-progress {
+        position: relative;
+        flex: 0 0 194px;
+        width: 194px;
+        height: 17px;
+      }
+      .timeline-month-progress img {
+        position: absolute;
+        inset: 0;
+        display: block;
+      }
+      .timeline-month-progress span {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        padding: 0 4px;
+        color: var(--muted);
+        font-size: 9px;
+        line-height: 12px;
+        white-space: nowrap;
+      }
+      .timeline-entries {
+        display: grid;
+        min-width: 496px;
+        gap: 7px;
+      }
+      .timeline-entry {
+        display: grid;
+        grid-template-columns: 68px minmax(110px, 1fr) minmax(110px, 1fr) 126px;
+        align-items: center;
+        column-gap: 20px;
+        min-height: 26px;
+        padding: 4px 10px 4px 18px;
+        font-size: 10px;
+        line-height: 18px;
+      }
+      .timeline-date, .timeline-company, .timeline-role {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .timeline-date { color: var(--muted); }
+      .timeline-company, .timeline-role {
+        color: var(--ink);
+        font-weight: 500;
+      }
+      .timeline-entry.is-rejected { background: #f9e7e4; border-radius: 6px; }
+      .timeline-status {
+        overflow: hidden;
+        color: var(--muted);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .timeline-status.is-rejected { color: #a45e54; }
+      .timeline-empty {
+        margin: 8px 0 0;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 18px;
+      }
+      .timeline-pagination {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 12px;
+        margin-top: auto;
+        padding-top: 20px;
+      }
+      .timeline-pagination[hidden] { display: none; }
+      .timeline-page-label {
+        min-width: 88px;
+        color: var(--muted);
+        font-size: 12px;
+        text-align: center;
+      }
+      .timeline-page-button {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 7px 12px;
+        background: var(--surface);
+        color: var(--ink);
+        font: inherit;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .timeline-page-button:hover:not(:disabled) {
+        border-color: var(--green-border);
+        background: var(--green-soft);
+      }
+      .timeline-page-button:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+      }
+      @media (max-width: 480px) {
+        .timeline-card { min-height: calc(100vh - 250px); }
+        .timeline-card { padding: 18px; }
+        .timeline-month-header { flex-wrap: wrap; gap: 0 12px; }
+        .timeline-entries { min-width: 0; }
+        .timeline-entry {
+          grid-template-columns: minmax(0, 1fr) auto;
+          grid-template-areas: "date status" "company company" "role role";
+          row-gap: 1px;
+          min-height: 0;
+          padding: 6px 10px 6px 18px;
+        }
+        .timeline-date { grid-area: date; }
+        .timeline-company { grid-area: company; }
+        .timeline-role { grid-area: role; }
+        .timeline-status { grid-area: status; }
+      }
+
       [class~="text-zinc-100"], [class~="text-zinc-200"], [class~="text-zinc-300"] { color: var(--ink) !important; }
       [class~="text-zinc-400"], [class~="text-zinc-500"] { color: var(--muted) !important; }
       [class~="text-zinc-600"] { color: #929183 !important; }
@@ -70,120 +296,132 @@
   </head>
   <body class="min-h-screen text-zinc-100 antialiased">
     <main class="mx-auto max-w-7xl px-5 py-10 sm:px-8 lg:py-14">
-      <header class="mb-10 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+      <header class="app-header">
         <div>
-          <p class="mb-3 text-xs font-semibold uppercase tracking-[0.24em] text-blue-400">Private, local dashboard</p>
-          <h1 class="text-3xl font-semibold tracking-tight sm:text-4xl">Job application tracker</h1>
-          <p class="mt-2 text-sm text-zinc-400">Track your pipeline and optionally catch up from Gmail.</p>
+          <h1 class="app-title">Job application tracker</h1>
+          <p class="app-subtitle">A clear view of every opportunity and its status.</p>
         </div>
-        <div id="connection-state" class="flex items-center gap-2 self-start rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-xs text-zinc-400 sm:self-auto" role="status">
-          <span class="h-2 w-2 rounded-full bg-zinc-500"></span>Connecting to tracker
+        <div class="app-header-tools">
+          <nav class="tabs" role="tablist" aria-label="Main navigation">
+            <button id="home-tab" class="tab-button" type="button" role="tab" aria-selected="true" aria-controls="home-panel" tabindex="0">Home</button>
+            <button id="pipeline-tab" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="pipeline-panel" tabindex="-1">Pipeline</button>
+            <button id="settings-tab" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="settings-panel" tabindex="-1">Settings</button>
+          </nav>
+          <p class="app-total">Total applications: <strong id="stat-total">—</strong> · Heard: <strong id="stat-interviewing">—</strong> · Rejected: <strong id="stat-rejected">—</strong> · Not heard: <strong id="stat-applied">—</strong></p>
         </div>
       </header>
 
-      <section aria-label="Application statistics" class="mb-8 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <article class="glass rounded-2xl border border-zinc-800 p-5">
-          <p class="text-sm text-zinc-400">Total applications</p>
-          <p id="stat-total" class="mt-3 text-3xl font-semibold">—</p>
-        </article>
-        <article class="glass rounded-2xl border border-blue-500/20 p-5">
-          <p class="text-sm text-zinc-400">Applied</p>
-          <p id="stat-applied" class="mt-3 text-3xl font-semibold text-blue-400">—</p>
-        </article>
-        <article class="glass rounded-2xl border border-yellow-500/20 p-5">
-          <p class="text-sm text-zinc-400">Interviewing</p>
-          <p id="stat-interviewing" class="mt-3 text-3xl font-semibold text-yellow-400">—</p>
-        </article>
-        <article class="glass rounded-2xl border border-red-500/20 p-5">
-          <p class="text-sm text-zinc-400">Rejected</p>
-          <p id="stat-rejected" class="mt-3 text-3xl font-semibold text-red-400">—</p>
-        </article>
-      </section>
-
-      <section class="glass mb-8 rounded-2xl border border-zinc-800 p-5 sm:p-7" aria-labelledby="form-title">
-        <h2 id="form-title" class="text-lg font-semibold">Add an application</h2>
-        <p class="mt-1 text-sm text-zinc-400">Application records are stored in your local MongoDB.</p>
-        <form id="application-form" class="mt-5 grid gap-4 md:grid-cols-2 lg:grid-cols-[1fr_1fr_0.8fr_0.8fr_auto] lg:items-end">
-          <label class="block text-sm text-zinc-300">
-            Company
-            <input name="company" required maxlength="120" autocomplete="organization" placeholder="e.g. Acme Inc."
-              class="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3.5 py-3 text-sm outline-none placeholder:text-zinc-600 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20">
-          </label>
-          <label class="block text-sm text-zinc-300">
-            Role
-            <input name="role" required maxlength="120" placeholder="e.g. Product Designer"
-              class="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3.5 py-3 text-sm outline-none placeholder:text-zinc-600 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20">
-          </label>
-          <label class="block text-sm text-zinc-300">
-            Status
-            <select name="status" class="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3.5 py-3 text-sm outline-none focus:border-blue-500">
-              <option>Applied</option><option>Interviewing</option><option>Rejected</option>
-            </select>
-          </label>
-          <label class="block text-sm text-zinc-300">
-            Date
-            <input name="date" type="date" required class="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3.5 py-3 text-sm outline-none focus:border-blue-500">
-          </label>
-          <button type="submit" class="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:cursor-wait disabled:opacity-60">
-            Add application
-          </button>
-        </form>
-        <p id="form-message" class="mt-4 hidden text-sm" role="status" aria-live="polite"></p>
-      </section>
-
-      <section class="glass mb-8 rounded-2xl border border-zinc-800 p-5 sm:p-7" aria-labelledby="gmail-title">
-        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 id="gmail-title" class="text-lg font-semibold">Optional Gmail catch-up</h2>
-            <p class="mt-1 max-w-2xl text-sm text-zinc-400">Read-only Gmail access runs in this tab. The access token stays in memory and is never written to browser storage or sent to this server.</p>
+      <section id="home-panel" class="tab-panel" role="tabpanel" aria-labelledby="home-tab" tabindex="0">
+        <section class="timeline-card" aria-labelledby="timeline-title">
+          <h2 id="timeline-title" class="timeline-home-title">Your applications</h2>
+          <div class="timeline-body">
+            <div id="timeline-list" class="timeline-list" aria-live="polite"></div>
+            <p id="timeline-empty" class="timeline-empty hidden">No applications yet. Add one in Settings to start your timeline.</p>
           </div>
-          <span id="gmail-state" class="text-xs text-zinc-500" role="status">Not connected</span>
-        </div>
-        <div class="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
-          <label class="block text-sm text-zinc-300">
-            Google OAuth client ID
-            <input id="google-client-id" type="text" autocomplete="off" spellcheck="false" placeholder="Your Google OAuth web client ID"
-              class="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3.5 py-3 text-sm outline-none placeholder:text-zinc-600 focus:border-blue-500">
-          </label>
-          <button id="authorize-button" type="button" class="self-end rounded-xl border border-zinc-700 px-4 py-3 text-sm font-semibold text-zinc-200 hover:border-zinc-500">
-            Authorize Gmail
-          </button>
-          <button id="sync-button" type="button" disabled class="self-end rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50">
-            Sync messages
-          </button>
-          <button id="forget-button" type="button" disabled class="self-end rounded-xl border border-zinc-700 px-4 py-3 text-sm text-zinc-300 hover:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-50">
-            Disconnect
-          </button>
-        </div>
-        <p class="mt-3 text-xs leading-5 text-zinc-500">Create a Google OAuth Web application client ID and allow this page's origin. This app requests only the Gmail read-only scope. Disconnecting or closing the tab discards the in-memory access token.</p>
-        <p id="sync-message" class="mt-3 hidden text-sm" role="status" aria-live="polite"></p>
+          <nav id="timeline-pagination" class="timeline-pagination" aria-label="Timeline pages" hidden>
+            <button id="timeline-previous" class="timeline-page-button" type="button">Previous</button>
+            <span id="timeline-page-label" class="timeline-page-label" aria-live="polite"></span>
+            <button id="timeline-next" class="timeline-page-button" type="button">Next</button>
+          </nav>
+        </section>
       </section>
 
-      <section class="glass overflow-hidden rounded-2xl border border-zinc-800" aria-labelledby="list-title">
-        <div class="flex items-center justify-between gap-4 border-b border-zinc-800 px-5 py-5 sm:px-7">
-          <div>
-            <h2 id="list-title" class="text-lg font-semibold">Your pipeline</h2>
-            <p class="mt-1 text-sm text-zinc-400">Most recently added opportunities first.</p>
+      <section id="pipeline-panel" class="tab-panel" role="tabpanel" aria-labelledby="pipeline-tab" tabindex="0" hidden>
+        <section class="glass overflow-hidden rounded-2xl border border-zinc-800" aria-labelledby="list-title">
+          <div class="flex items-center justify-between gap-4 border-b border-zinc-800 px-5 py-5 sm:px-7">
+            <div>
+              <h2 id="list-title" class="text-lg font-semibold">Your pipeline</h2>
+              <p class="mt-1 text-sm text-zinc-400">Update application statuses as you hear back.</p>
+            </div>
+            <button id="refresh-button" type="button" class="rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:border-zinc-500 hover:text-white">Refresh</button>
           </div>
-          <button id="refresh-button" type="button" class="rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:border-zinc-500 hover:text-white">Refresh</button>
-        </div>
-        <div class="scrollbar overflow-x-auto">
-          <table class="w-full min-w-[620px] text-left text-sm">
-            <thead class="bg-zinc-950/60 text-xs uppercase tracking-wider text-zinc-500">
-              <tr>
-                <th scope="col" class="px-5 py-3.5 font-medium sm:px-7">Company / role</th>
-                <th scope="col" class="px-4 py-3.5 font-medium">Date</th>
-                <th scope="col" class="px-4 py-3.5 font-medium">Status</th>
-                <th scope="col" class="px-5 py-3.5 font-medium sm:px-7">Update</th>
-              </tr>
-            </thead>
-            <tbody id="application-list" class="divide-y divide-zinc-800/80"></tbody>
-          </table>
-        </div>
-        <div id="empty-state" class="hidden px-6 py-14 text-center">
-          <p class="font-medium text-zinc-300">No applications yet</p>
-          <p class="mt-1 text-sm text-zinc-500">Add your first opportunity above to get started.</p>
-        </div>
+          <div class="scrollbar overflow-x-auto">
+            <table class="w-full min-w-[620px] text-left text-sm">
+              <thead class="bg-zinc-950/60 text-xs uppercase tracking-wider text-zinc-500">
+                <tr>
+                  <th scope="col" class="px-5 py-3.5 font-medium sm:px-7">Company / role</th>
+                  <th scope="col" class="px-4 py-3.5 font-medium">Date</th>
+                  <th scope="col" class="px-4 py-3.5 font-medium">Status</th>
+                  <th scope="col" class="px-5 py-3.5 font-medium sm:px-7">Update</th>
+                </tr>
+              </thead>
+              <tbody id="application-list" class="divide-y divide-zinc-800/80"></tbody>
+            </table>
+          </div>
+          <nav id="pipeline-pagination" class="timeline-pagination px-5 pb-5 sm:px-7" aria-label="Pipeline pages" hidden>
+            <button id="pipeline-previous" class="timeline-page-button" type="button">Previous</button>
+            <span id="pipeline-page-label" class="timeline-page-label" aria-live="polite"></span>
+            <button id="pipeline-next" class="timeline-page-button" type="button">Next</button>
+          </nav>
+          <div id="empty-state" class="hidden px-6 py-14 text-center">
+            <p class="font-medium text-zinc-300">No applications yet</p>
+            <p class="mt-1 text-sm text-zinc-500">Add your first opportunity in Settings.</p>
+          </div>
+        </section>
+      </section>
+
+      <section id="settings-panel" class="tab-panel" role="tabpanel" aria-labelledby="settings-tab" tabindex="0" hidden>
+        <section class="glass mb-8 rounded-2xl border border-zinc-800 p-5 sm:p-7" aria-labelledby="form-title">
+          <h2 id="form-title" class="text-lg font-semibold">Add an application</h2>
+          <p class="mt-1 text-sm text-zinc-400">Applications and their statuses are saved in a local JSON file.</p>
+          <form id="application-form" class="mt-5 grid gap-4 md:grid-cols-2 lg:grid-cols-[1fr_1fr_0.8fr_0.8fr_auto_auto] lg:items-end">
+            <label class="block text-sm text-zinc-300">
+              Company
+              <input name="company" required maxlength="120" autocomplete="organization" placeholder="e.g. Acme Inc."
+                class="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3.5 py-3 text-sm outline-none placeholder:text-zinc-600 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20">
+            </label>
+            <label class="block text-sm text-zinc-300">
+              Role
+              <input name="role" required maxlength="120" placeholder="e.g. Product Designer"
+                class="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3.5 py-3 text-sm outline-none placeholder:text-zinc-600 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20">
+            </label>
+            <label class="block text-sm text-zinc-300">
+              Status
+              <select name="status" class="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3.5 py-3 text-sm outline-none focus:border-blue-500">
+                <option>Applied</option><option>Interviewing</option><option>Rejected</option>
+              </select>
+            </label>
+            <label class="block text-sm text-zinc-300">
+              Date
+              <input name="date" type="date" required class="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3.5 py-3 text-sm outline-none focus:border-blue-500">
+            </label>
+            <button type="submit" class="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:cursor-wait disabled:opacity-60">
+              Add application
+            </button>
+            <button id="cancel-edit-button" type="button" class="hidden rounded-xl border border-zinc-700 px-5 py-3 text-sm font-semibold text-zinc-300 hover:border-zinc-500">
+              Cancel
+            </button>
+          </form>
+          <p id="form-message" class="mt-4 hidden text-sm" role="status" aria-live="polite"></p>
+        </section>
+
+        <section class="glass mb-8 rounded-2xl border border-zinc-800 p-5 sm:p-7" aria-labelledby="gmail-title">
+          <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 id="gmail-title" class="text-lg font-semibold">Sync from Google</h2>
+              <p class="mt-1 max-w-2xl text-sm text-zinc-400">Read-only Gmail access runs in this tab. The access token stays in memory and is never written to browser storage or sent to this server.</p>
+            </div>
+            <span id="gmail-state" class="text-xs text-zinc-500" role="status">Not connected</span>
+          </div>
+          <div class="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
+            <label class="block text-sm text-zinc-300">
+              Google OAuth client ID
+              <input id="google-client-id" type="text" autocomplete="off" spellcheck="false" placeholder="Your Google OAuth web client ID"
+                class="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3.5 py-3 text-sm outline-none placeholder:text-zinc-600 focus:border-blue-500">
+            </label>
+            <button id="authorize-button" type="button" class="self-end rounded-xl border border-zinc-700 px-4 py-3 text-sm font-semibold text-zinc-200 hover:border-zinc-500">
+              Authorize Google
+            </button>
+            <button id="sync-button" type="button" disabled class="self-end rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50">
+              Sync messages
+            </button>
+            <button id="forget-button" type="button" disabled class="self-end rounded-xl border border-zinc-700 px-4 py-3 text-sm text-zinc-300 hover:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-50">
+              Disconnect
+            </button>
+          </div>
+          <p class="mt-3 text-xs leading-5 text-zinc-500">Create a Google OAuth Web application client ID and allow this page's origin. This app requests only the Gmail read-only scope. Disconnecting or closing the tab discards the in-memory access token.</p>
+          <p id="sync-message" class="mt-3 hidden text-sm" role="status" aria-live="polite"></p>
+        </section>
       </section>
       <p id="page-error" class="mt-4 hidden text-sm text-red-400" role="alert"></p>
     </main>
@@ -197,12 +435,44 @@
       };
       const form = document.querySelector('#application-form');
       const applicationList = document.querySelector('#application-list');
+      const timelineList = document.querySelector('#timeline-list');
       const pageError = document.querySelector('#page-error');
       const formMessage = document.querySelector('#form-message');
       const syncMessage = document.querySelector('#sync-message');
       const gmailState = document.querySelector('#gmail-state');
+      const tabButtons = [...document.querySelectorAll('[role="tab"]')];
+      let timelinePage = 0;
+      let timelineApplications = [];
+      let pipelinePage = 0;
+      let pipelineApplications = [];
       let accessToken = null;
       let tokenClient = null;
+      let editingApplicationId = null;
+
+      function selectTab(selectedTab, moveFocus = false) {
+        for (const button of tabButtons) {
+          const selected = button === selectedTab;
+          button.setAttribute('aria-selected', String(selected));
+          button.tabIndex = selected ? 0 : -1;
+          document.getElementById(button.getAttribute('aria-controls')).hidden = !selected;
+        }
+        if (moveFocus) selectedTab.focus();
+      }
+
+      for (const button of tabButtons) {
+        button.addEventListener('click', () => selectTab(button));
+        button.addEventListener('keydown', event => {
+          const currentIndex = tabButtons.indexOf(button);
+          let nextIndex;
+          if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % tabButtons.length;
+          else if (event.key === 'ArrowLeft') nextIndex = (currentIndex + tabButtons.length - 1) % tabButtons.length;
+          else if (event.key === 'Home') nextIndex = 0;
+          else if (event.key === 'End') nextIndex = tabButtons.length - 1;
+          else return;
+          event.preventDefault();
+          selectTab(tabButtons[nextIndex], true);
+        });
+      }
 
       function showMessage(element, message, isError = false) {
         element.textContent = message;
@@ -216,6 +486,116 @@
         return data;
       }
 
+      function formatTimelineDate(value) {
+        const [year, month, day] = value.split('-');
+        return `${day}.${month}.${year}`;
+      }
+
+      function renderTimeline(applications) {
+        timelineApplications = applications;
+        timelineList.replaceChildren();
+        document.querySelector('#timeline-empty').classList.toggle('hidden', applications.length !== 0);
+
+        const months = new Map();
+        for (const application of applications) {
+          const monthKey = application.date.slice(0, 7);
+          if (!months.has(monthKey)) months.set(monthKey, []);
+          months.get(monthKey).push(application);
+        }
+
+        const years = new Set([...months.keys()].map(monthKey => monthKey.slice(0, 4)));
+        const orderedMonths = [...months.entries()].sort(([first], [second]) => second.localeCompare(first));
+        const sortedApplications = orderedMonths.flatMap(([, monthApplications]) =>
+          monthApplications.sort((first, second) =>
+            first.date.localeCompare(second.date) || first.company.localeCompare(second.company)));
+        const pageCount = Math.max(1, Math.ceil(sortedApplications.length / 10));
+        timelinePage = Math.min(timelinePage, pageCount - 1);
+        const pageApplications = sortedApplications.slice(timelinePage * 10, (timelinePage + 1) * 10);
+        const pageMonths = new Map();
+        for (const application of pageApplications) {
+          const monthKey = application.date.slice(0, 7);
+          if (!pageMonths.has(monthKey)) pageMonths.set(monthKey, []);
+          pageMonths.get(monthKey).push(application);
+        }
+
+        const pagination = document.querySelector('#timeline-pagination');
+        const previousButton = document.querySelector('#timeline-previous');
+        const nextButton = document.querySelector('#timeline-next');
+        pagination.hidden = sortedApplications.length <= 10;
+        previousButton.disabled = timelinePage === 0;
+        nextButton.disabled = timelinePage >= pageCount - 1;
+        document.querySelector('#timeline-page-label').textContent = `Page ${timelinePage + 1} of ${pageCount}`;
+
+        for (const [monthKey, visibleApplications] of pageMonths) {
+          const monthApplications = months.get(monthKey);
+          monthApplications.sort((first, second) =>
+            first.date.localeCompare(second.date) || first.company.localeCompare(second.company));
+
+          const [year, month] = monthKey.split('-').map(Number);
+          const monthSection = document.createElement('section');
+          monthSection.className = 'timeline-month';
+          const monthHeader = document.createElement('div');
+          monthHeader.className = 'timeline-month-header';
+          const monthName = document.createElement('h2');
+          monthName.className = 'timeline-month-name';
+          const monthLabel = new Intl.DateTimeFormat('en', { month: 'long' }).format(new Date(year, month - 1, 1));
+          monthName.textContent = years.size > 1 ? `${monthLabel} ${year}` : monthLabel;
+          monthHeader.append(monthName);
+
+          const counts = { Applied: 0, Interviewing: 0, Rejected: 0 };
+          for (const application of monthApplications) counts[application.status] += 1;
+          const progress = document.createElement('div');
+          progress.className = 'timeline-month-progress';
+          progress.setAttribute('aria-label', `${counts.Applied} applied, ${counts.Rejected} rejected, ${counts.Interviewing} ongoing`);
+          const progressImage = document.createElement('img');
+          progressImage.src = '/assets/timeline-progress.svg';
+          progressImage.width = 194;
+          progressImage.height = 17;
+          progressImage.alt = '';
+          progressImage.setAttribute('aria-hidden', 'true');
+          const progressSummary = document.createElement('span');
+          progressSummary.textContent = `${counts.Applied} applied, ${counts.Rejected} rejected, ${counts.Interviewing} ongoing`;
+          progress.append(progressImage, progressSummary);
+          monthHeader.append(progress);
+          monthSection.append(monthHeader);
+
+          const entries = document.createElement('div');
+          entries.className = 'timeline-entries';
+          for (const application of visibleApplications) {
+            const entry = document.createElement('div');
+            entry.className = 'timeline-entry';
+            const date = document.createElement('span');
+            date.className = 'timeline-date';
+            date.textContent = formatTimelineDate(application.date);
+            const company = document.createElement('span');
+            company.className = 'timeline-company';
+            company.textContent = application.company;
+            const role = document.createElement('span');
+            role.className = 'timeline-role';
+            role.textContent = application.role;
+            const status = document.createElement('span');
+            status.className = `timeline-status${application.status === 'Rejected' ? ' is-rejected' : ''}`;
+            status.textContent = application.status === 'Interviewing' ? 'Ongoing' : application.status;
+            if (application.status === 'Rejected') entry.classList.add('is-rejected');
+            entry.append(date, company, role, status);
+            entries.append(entry);
+          }
+          monthSection.append(entries);
+          timelineList.append(monthSection);
+        }
+      }
+
+      document.querySelector('#timeline-previous').addEventListener('click', () => {
+        if (timelinePage === 0) return;
+        timelinePage -= 1;
+        renderTimeline(timelineApplications);
+      });
+      document.querySelector('#timeline-next').addEventListener('click', () => {
+        if ((timelinePage + 1) * 10 >= timelineApplications.length) return;
+        timelinePage += 1;
+        renderTimeline(timelineApplications);
+      });
+
       function makeCell(className, text) {
         const cell = document.createElement('td');
         cell.className = className;
@@ -223,10 +603,46 @@
         return cell;
       }
 
+      function resetApplicationForm() {
+        form.reset();
+        form.elements.date.value = new Date().toISOString().slice(0, 10);
+        editingApplicationId = null;
+        document.querySelector('#form-title').textContent = 'Add an application';
+        form.querySelector('button[type="submit"]').textContent = 'Add application';
+        document.querySelector('#cancel-edit-button').classList.add('hidden');
+        formMessage.textContent = '';
+        formMessage.className = 'hidden mt-4 text-sm';
+      }
+
+      function editApplication(application) {
+        editingApplicationId = application.id;
+        form.elements.company.value = application.company;
+        form.elements.role.value = application.role;
+        form.elements.status.value = application.status;
+        form.elements.date.value = application.date;
+        document.querySelector('#form-title').textContent = 'Edit an application';
+        form.querySelector('button[type="submit"]').textContent = 'Save changes';
+        document.querySelector('#cancel-edit-button').classList.remove('hidden');
+        formMessage.textContent = '';
+        formMessage.className = 'hidden mt-4 text-sm';
+        selectTab(document.querySelector('#settings-tab'));
+        form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        form.elements.company.focus({ preventScroll: true });
+      }
+
       function renderApplications(applications) {
+        pipelineApplications = applications;
+        const pageCount = Math.max(1, Math.ceil(applications.length / 10));
+        pipelinePage = Math.min(pipelinePage, pageCount - 1);
+        const pageApplications = applications.slice(pipelinePage * 10, (pipelinePage + 1) * 10);
         applicationList.replaceChildren();
         document.querySelector('#empty-state').classList.toggle('hidden', applications.length !== 0);
-        for (const application of applications) {
+        const pagination = document.querySelector('#pipeline-pagination');
+        pagination.hidden = applications.length <= 10;
+        document.querySelector('#pipeline-previous').disabled = pipelinePage === 0;
+        document.querySelector('#pipeline-next').disabled = pipelinePage >= pageCount - 1;
+        document.querySelector('#pipeline-page-label').textContent = `Page ${pipelinePage + 1} of ${pageCount}`;
+        for (const application of pageApplications) {
           const row = document.createElement('tr');
           row.className = 'transition hover:bg-white/[0.02]';
           const companyCell = document.createElement('td');
@@ -250,8 +666,10 @@
 
           const updateCell = document.createElement('td');
           updateCell.className = 'px-5 py-4 sm:px-7';
+          const controls = document.createElement('div');
+          controls.className = 'flex flex-wrap items-center gap-2';
           const select = document.createElement('select');
-          select.setAttribute('aria-label', `Update status for ${application.company}, ${application.role}`);
+          select.setAttribute('aria-label', `Update status for ${application.company}`);
           select.className = 'rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-2 text-xs text-zinc-300 outline-none focus:border-blue-500';
           for (const status of statuses) {
             const option = document.createElement('option');
@@ -274,11 +692,29 @@
               select.disabled = false;
             }
           });
-          updateCell.append(select);
+          const editButton = document.createElement('button');
+          editButton.type = 'button';
+          editButton.textContent = 'Edit';
+          editButton.className = 'rounded-lg border border-zinc-700 px-2.5 py-2 text-xs text-zinc-300 hover:border-zinc-500';
+          editButton.setAttribute('aria-label', `Edit ${application.company}`);
+          editButton.addEventListener('click', () => editApplication(application));
+          controls.append(select, editButton);
+          updateCell.append(controls);
           row.append(updateCell);
           applicationList.append(row);
         }
       }
+
+      document.querySelector('#pipeline-previous').addEventListener('click', () => {
+        if (pipelinePage === 0) return;
+        pipelinePage -= 1;
+        renderApplications(pipelineApplications);
+      });
+      document.querySelector('#pipeline-next').addEventListener('click', () => {
+        if ((pipelinePage + 1) * 10 >= pipelineApplications.length) return;
+        pipelinePage += 1;
+        renderApplications(pipelineApplications);
+      });
 
       async function loadDashboard() {
         const [stats, applications] = await Promise.all([request('/stats'), request('/apps')]);
@@ -286,19 +722,14 @@
         document.querySelector('#stat-applied').textContent = stats.applied;
         document.querySelector('#stat-interviewing').textContent = stats.interviewing;
         document.querySelector('#stat-rejected').textContent = stats.rejected;
+        renderTimeline(applications);
         renderApplications(applications);
-        const state = document.querySelector('#connection-state');
-        state.replaceChildren(Object.assign(document.createElement('span'), { className: 'h-2 w-2 rounded-full bg-emerald-400' }), document.createTextNode('Connected to tracker'));
-        state.className = 'flex items-center gap-2 self-start rounded-full border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-400 sm:self-auto';
         return stats;
       }
 
       function connectWebSocket() {
         const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
         const socket = new WebSocket(`${protocol}//${location.host}`);
-        socket.addEventListener('open', () => {
-          document.querySelector('#connection-state').setAttribute('aria-label', 'Tracker connected; live updates enabled');
-        });
         socket.addEventListener('message', event => {
           try {
             const update = JSON.parse(event.data);
@@ -327,14 +758,15 @@
         button.disabled = true;
         try {
           const values = Object.fromEntries(new FormData(form));
-          await request('/apps', {
-            method: 'POST',
+          const isEditing = editingApplicationId !== null;
+          const url = isEditing ? `/apps/${encodeURIComponent(editingApplicationId)}` : '/apps';
+          await request(url, {
+            method: isEditing ? 'PUT' : 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(values),
           });
-          form.reset();
-          form.elements.date.value = new Date().toISOString().slice(0, 10);
-          showMessage(formMessage, 'Application added to your pipeline.');
+          resetApplicationForm();
+          showMessage(formMessage, isEditing ? 'Application changes saved.' : 'Application added to your pipeline.');
           await loadDashboard();
         } catch (error) {
           showMessage(formMessage, error.message, true);
@@ -342,6 +774,8 @@
           button.disabled = false;
         }
       });
+
+      document.querySelector('#cancel-edit-button').addEventListener('click', resetApplicationForm);
 
       document.querySelector('#refresh-button').addEventListener('click', () => {
         loadDashboard().catch(error => showMessage(pageError, error.message, true));

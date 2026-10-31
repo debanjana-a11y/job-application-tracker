@@ -1,31 +1,23 @@
 COMPOSE ?= docker-compose
-PODMAN ?= podman
-SUDO ?= sudo
-NETWORK_CONFIG ?= /etc/cni/net.d/job-tracker-network.conflist
-NETWORK_NAME := job-tracker-network
 PROJECT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 COMPOSE_FILE := $(PROJECT_DIR)docker-compose.yml
 COMPOSE_ENV_FILE := $(PROJECT_DIR).env
 COMPOSE_ENV_ARGS := $(if $(wildcard $(COMPOSE_ENV_FILE)),--env-file "$(COMPOSE_ENV_FILE)",)
 
-.PHONY: help prepare-network start stop restart clean clean-data status logs
+.PHONY: help start stop restart clean clean-data status logs
 
 help:
 	@printf '%s\n' \
 	  'Job tracker commands:' \
-	  '  make start      Prepare the Podman network and start services (uses MONGO_URL from .env if present)' \
+	  '  make start      Build and start the app container' \
 	  '  make stop       Stop this project without removing its containers' \
 	  '  make restart    Remove and recreate this project'\''s containers' \
-	  '  make clean      Remove project containers/network and all unused Podman images' \
-	  '  make clean-data Remove containers, network, and MongoDB data volume' \
+	  '  make clean      Remove this project'\''s containers' \
+	  '  make clean-data Remove containers and the JSON data volume' \
 	  '  make status     Show this project'\''s container status' \
 	  '  make logs       Follow this project'\''s logs'
 
-prepare-network:
-	$(PODMAN) network exists "$(NETWORK_NAME)" || $(PODMAN) network create --driver bridge "$(NETWORK_NAME)"
-	$(SUDO) python3 "$(PROJECT_DIR)scripts/normalize-podman-cni.py" "$(NETWORK_CONFIG)"
-
-start: prepare-network
+start:
 	$(COMPOSE) $(COMPOSE_ENV_ARGS) -f "$(COMPOSE_FILE)" up -d --build
 
 stop:
@@ -33,21 +25,17 @@ stop:
 
 restart:
 	$(COMPOSE) $(COMPOSE_ENV_ARGS) -f "$(COMPOSE_FILE)" down --remove-orphans
-	if $(PODMAN) network exists "$(NETWORK_NAME)"; then $(PODMAN) network rm "$(NETWORK_NAME)"; fi
-	$(MAKE) start COMPOSE="$(COMPOSE)" PODMAN="$(PODMAN)" SUDO="$(SUDO)" NETWORK_CONFIG="$(NETWORK_CONFIG)"
+	$(MAKE) start COMPOSE="$(COMPOSE)"
 
 clean:
 	$(COMPOSE) $(COMPOSE_ENV_ARGS) -f "$(COMPOSE_FILE)" down --remove-orphans
-	-$(PODMAN) network rm "$(NETWORK_NAME)"
-	$(PODMAN) image prune --all --force
 
 clean-data:
 	@test "$(CONFIRM)" = "yes" || { \
-	  echo 'Refusing to delete MongoDB data. Run: make clean-data CONFIRM=yes'; \
+	  echo 'Refusing to delete JSON application data. Run: make clean-data CONFIRM=yes'; \
 	  exit 1; \
 	}
 	$(COMPOSE) $(COMPOSE_ENV_ARGS) -f "$(COMPOSE_FILE)" down --remove-orphans --volumes
-	-$(PODMAN) network rm "$(NETWORK_NAME)"
 
 status:
 	$(COMPOSE) $(COMPOSE_ENV_ARGS) -f "$(COMPOSE_FILE)" ps
