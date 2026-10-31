@@ -1,57 +1,18 @@
 services:
-  redis:
-    container_name: job-tracker-redis
-    image: redis:alpine
-    networks:
-      - job-tracker-network
-    ports:
-      - "127.0.0.1:6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
-  mongodb:
-    container_name: job-tracker-mongodb
-    image: mongo:latest
-    networks:
-      - job-tracker-network
-    ports:
-      - "127.0.0.1:27017:27017"
-    volumes:
-      - mongodb_data:/data/db
-    healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   app:
     container_name: job-tracker-app
     image: job-tracker-app:latest
     build:
       context: .
       dockerfile: Dockerfile
-    networks:
-      - job-tracker-network
     ports:
       - "127.0.0.1:3000:3000"
     environment:
-      REDIS_URL: redis://redis:6379
-      MONGO_URL: ${MONGO_URL:-mongodb://mongodb:27017/jobtracker}
       HOST: 0.0.0.0
       PORT: 3000
-    depends_on:
-      redis:
-        condition: service_healthy
-      mongodb:
-        condition: service_healthy
+      DATA_DIR: /app/data
+    volumes:
+      - application_data:/app/data
 
 volumes:
-  mongodb_data:
-
-networks:
-  job-tracker-network:
-    external: true
-    name: job-tracker-network
+  application_data:

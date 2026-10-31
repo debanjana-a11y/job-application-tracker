@@ -1,328 +1,626 @@
 import express from 'express';
-import mongoose from 'mongoose';
-import { createClient } from 'redis';
-import { WebSocketServer, WebSocket } from 'ws';
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import donenv from 'dotenv';
+donenv.config();
 
 const host = process.env.HOST || '127.0.0.1';
+const port = Number(process.env.PORT) || 3000;
 const publicDirectory = fileURLToPath(new URL('./public/', import.meta.url));
+const dataDirectory = path.resolve(
+	process.env.DATA_DIR || fileURLToPath(new URL('./data/', import.meta.url)),
+);
+const dataFile = path.join(dataDirectory, 'applications.json');
 const validStatuses = ['Applied', 'Interviewing', 'Rejected'];
-const redisClient = createClient({
-  url: process.env.REDIS_URL || 'redis://127.0.0.1:6379',
-});
-
-redisClient.on('error', error => {
-  console.error('Redis client error:', error);
-});
-
-const applicationSchema = new mongoose.Schema({
-  company: { type: String, required: true, trim: true, maxlength: 120 },
-  role: { type: String, required: true, trim: true, maxlength: 120 },
-  status: { type: String, enum: validStatuses, required: true, default: 'Applied' },
-  date: { type: String, required: true, match: /^\d{4}-\d{2}-\d{2}$/ },
-  sourceId: { type: String, unique: true, sparse: true, maxlength: 200 },
-}, { timestamps: true });
-
-const Application = mongoose.model('Application', applicationSchema);
-
-const syncStateSchema = new mongoose.Schema({
-  _id: { type: String, default: 'gmail' },
-  lastSyncAt: { type: Date, default: null },
-});
-
-const SyncState = mongoose.model('SyncState', syncStateSchema);
 const app = express();
 let server;
-let webSocketServer;
-let countersNeedRebuild = false;
+let storeQueue = Promise.resolve();
 
 app.disable('x-powered-by');
 app.use((req, res, next) => {
-  res.set({
-    'X-Content-Type-Options': 'nosniff',
-    'X-Frame-Options': 'DENY',
-    'Referrer-Policy': 'no-referrer',
-    'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
-  });
-  next();
+	res.set({
+		'X-Content-Type-Options': 'nosniff',
+		'X-Frame-Options': 'DENY',
+		'Referrer-Policy': 'no-referrer',
+		'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+	});
+	next();
 });
+app.use('/apps/import', express.json({ limit: '2mb', strict: true }));
 app.use(express.json({ limit: '12kb', strict: true }));
 app.use(express.static(publicDirectory, { index: 'index.html' }));
 
 function cleanText(value, maxLength) {
-  if (typeof value !== 'string') return '';
-  return value.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, maxLength);
+	if (typeof value !== 'string') return '';
+	return value
+		.replace(/[\u0000-\u001f\u007f]/g, '')
+		.trim()
+		.slice(0, maxLength);
 }
 
 function validDate(value) {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const date = new Date(`${value}T00:00:00.000Z`);
-  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+	if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value))
+		return false;
+	const date = new Date(`${value}T00:00:00.000Z`);
+	return (
+		!Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
+	);
+}
+
+function validateStore(store) {
+	if (
+		!store ||
+		!Array.isArray(store.applications) ||
+		!(
+			store.lastSyncAt === null ||
+			(typeof store.lastSyncAt === 'string' &&
+				Number.isFinite(Date.parse(store.lastSyncAt)))
+		)
+	) {
+		throw new Error(`Data file ${dataFile} has an invalid structure.`);
+	}
+	for (const application of store.applications) {
+		if (
+			!application ||
+			typeof application.id !== 'string' ||
+			typeof application.company !== 'string' ||
+			typeof application.role !== 'string' ||
+			!validStatuses.includes(application.status) ||
+			!validDate(application.date) ||
+			typeof application.createdAt !== 'string'
+		) {
+			throw new Error(
+				`Data file ${dataFile} contains an invalid application record.`,
+			);
+		}
+	}
+	return store;
+}
+
+async function readStore() {
+	let contents;
+	try {
+		contents = await readFile(dataFile, 'utf8');
+	} catch (error) {
+		if (error.code === 'ENOENT') return { applications: [], lastSyncAt: null };
+		throw error;
+	}
+
+	let store;
+	try {
+		store = JSON.parse(contents);
+	} catch (error) {
+		throw new Error(`Data file ${dataFile} is not valid JSON.`, {
+			cause: error,
+		});
+	}
+	return validateStore(store);
+}
+
+async function saveStore(store) {
+	const temporaryFile = `${dataFile}.${process.pid}.${randomUUID()}.tmp`;
+	try {
+		await writeFile(temporaryFile, `${JSON.stringify(store, null, 2)}\n`, {
+			flag: 'wx',
+		});
+		await rename(temporaryFile, dataFile);
+	} catch (error) {
+		try {
+			await unlink(temporaryFile);
+		} catch (cleanupError) {
+			if (cleanupError.code !== 'ENOENT')
+				console.error('Unable to remove temporary data file:', cleanupError);
+		}
+		throw error;
+	}
+}
+
+function updateStore(updater) {
+	const operation = storeQueue.then(async () => {
+		const store = await readStore();
+		const result = await updater(store);
+		await saveStore(store);
+		return result;
+	});
+	storeQueue = operation.catch(() => {});
+	return operation;
+}
+
+async function getStore() {
+	await storeQueue;
+	return readStore();
 }
 
 function publicApplication(application) {
-  return {
-    id: application._id.toString(),
-    company: application.company,
-    role: application.role,
-    status: application.status,
-    date: application.date,
-    createdAt: application.createdAt,
-  };
+	return {
+		id: application.id,
+		company: application.company,
+		role: application.role,
+		status: application.status,
+		date: application.date,
+		createdAt: application.createdAt,
+	};
 }
 
-async function updateRedisCounters(application, direction) {
-  const commands = [
-    { key: 'stats:total', value: direction },
-    { key: `stats:${application.status.toLowerCase()}`, value: direction },
-  ];
-  const multi = redisClient.multi();
-  for (const command of commands) multi.incrBy(command.key, command.value);
-  try {
-    await multi.exec();
-  } catch (error) {
-    countersNeedRebuild = true;
-    throw error;
-  }
+function gmailApplicationSourceId(company, role) {
+	const identity = `${company.trim().toLowerCase()}\0${role.trim().toLowerCase()}`;
+	const hash = createHash('sha256').update(identity).digest('hex');
+	return `gmail-application:${hash}`;
 }
 
-async function ensureCounters() {
-  if (!countersNeedRebuild) return;
-  await rebuildRedisCounters();
-  countersNeedRebuild = false;
-}
+app.post('/apps/gmail-sync', async (req, res, next) => {
+	const company = cleanText(req.body?.company, 120);
+	const role = cleanText(req.body?.role, 120);
+	const { status, date, messageId } = req.body ?? {};
+	const emailTimestamp = Number(req.body?.emailTimestamp);
+	if (!company || !role) {
+		return res.status(400).json({ error: 'A company and role are required.' });
+	}
+	if (!validStatuses.includes(status) || !validDate(date)) {
+		return res.status(400).json({ error: 'Provide a valid status and YYYY-MM-DD date.' });
+	}
+	if (
+		typeof messageId !== 'string' ||
+		!messageId.trim() ||
+		messageId.length > 200 ||
+		!Number.isSafeInteger(emailTimestamp) ||
+		emailTimestamp <= 0 ||
+		emailTimestamp > Date.now()
+	) {
+		return res.status(400).json({ error: 'Invalid Gmail message ID or timestamp.' });
+	}
 
-function broadcast(event) {
-  const payload = JSON.stringify(event);
-  for (const client of webSocketServer.clients) {
-    if (client.readyState === WebSocket.OPEN) client.send(payload);
-  }
-}
+	try {
+		const application = await updateStore(store => {
+			const alreadyImported = store.applications.find(
+				item =>
+					item.sourceId === `gmail:${messageId}` ||
+					item.gmailMessageIds?.includes(messageId),
+			);
+			if (alreadyImported) {
+				return { application: alreadyImported, created: false, updated: false };
+			}
+
+			let sourceId = gmailApplicationSourceId(company, role);
+			let existing = store.applications.find(item => item.sourceId === sourceId);
+			if (!existing) {
+				const candidates = store.applications.filter(
+					item =>
+						typeof item.sourceId === 'string' &&
+						(item.sourceId.startsWith('gmail:') ||
+							item.sourceId.startsWith('gmail-application:')) &&
+						item.company.trim().toLowerCase() === company.toLowerCase() &&
+						(item.role.trim().toLowerCase() === role.toLowerCase() ||
+							item.role.trim().toLowerCase() === 'n/a' ||
+							role.toLowerCase() === 'n/a'),
+				);
+				if (candidates.length === 1) existing = candidates[0];
+			}
+
+			if (!existing) {
+				const created = {
+					id: randomUUID(),
+					company,
+					role,
+					status,
+					date,
+					createdAt: new Date().toISOString(),
+					sourceId,
+					gmailMessageIds: [messageId],
+					sourceUpdatedAt: emailTimestamp,
+				};
+				store.applications.push(created);
+				return { application: created, created: true, updated: false };
+			}
+
+			const gmailMessageIds = Array.isArray(existing.gmailMessageIds)
+				? existing.gmailMessageIds
+				: [];
+			if (
+				existing.sourceId.startsWith('gmail:') &&
+				!gmailMessageIds.includes(existing.sourceId.slice('gmail:'.length))
+			) {
+				gmailMessageIds.push(existing.sourceId.slice('gmail:'.length));
+			}
+			gmailMessageIds.push(messageId);
+
+			const sourceUpdatedAt = Number(existing.sourceUpdatedAt) ||
+				Date.parse(`${existing.date}T00:00:00.000Z`);
+			const isNewerMessage = emailTimestamp >= sourceUpdatedAt;
+			const nextRole =
+				existing.role.trim().toLowerCase() === 'n/a' && role.toLowerCase() !== 'n/a'
+					? role
+					: existing.role;
+			sourceId = gmailApplicationSourceId(company, nextRole);
+			existing.company = company;
+			existing.role = nextRole;
+			existing.sourceId = sourceId;
+			existing.gmailMessageIds = gmailMessageIds;
+			if (isNewerMessage) {
+				existing.status = status;
+				existing.date = date;
+				existing.sourceUpdatedAt = emailTimestamp;
+			}
+			return {
+				application: existing,
+				created: false,
+				updated: isNewerMessage,
+			};
+		});
+		res.json({
+			application: publicApplication(application.application),
+			created: application.created,
+			updated: application.updated,
+		});
+	} catch (error) {
+		next(error);
+	}
+});
 
 app.get('/stats', async (req, res, next) => {
-  try {
-    await ensureCounters();
-    const [total, applied, interviewing, rejected, syncState] = await Promise.all([
-      redisClient.get('stats:total'),
-      redisClient.get('stats:applied'),
-      redisClient.get('stats:interviewing'),
-      redisClient.get('stats:rejected'),
-      SyncState.findById('gmail').lean(),
-    ]);
-    const lastSync = syncState?.lastSyncAt ? new Date(syncState.lastSyncAt).getTime() : null;
-    res.json({
-      total_applications: Number(total || 0),
-      applied: Number(applied || 0),
-      interviewing: Number(interviewing || 0),
-      rejected: Number(rejected || 0),
-      last_sync_timestamp: lastSync === null ? null : Math.floor(lastSync / 1000),
-    });
-  } catch (error) {
-    next(error);
-  }
+	try {
+		const store = await getStore();
+		const counts = { Applied: 0, Interviewing: 0, Rejected: 0 };
+		for (const application of store.applications)
+			counts[application.status] += 1;
+		const lastSync =
+			store.lastSyncAt === null
+				? null
+				: Math.floor(Date.parse(store.lastSyncAt) / 1000);
+		res.json({
+			total_applications: store.applications.length,
+			applied: counts.Applied,
+			interviewing: counts.Interviewing,
+			rejected: counts.Rejected,
+			last_sync_timestamp: lastSync,
+		});
+	} catch (error) {
+		next(error);
+	}
 });
 
 app.get('/apps', async (req, res, next) => {
-  try {
-    const applications = await Application.find().sort({ createdAt: -1 }).limit(500).lean();
-    res.json(applications.map(publicApplication));
-  } catch (error) {
-    next(error);
-  }
+	try {
+		const store = await getStore();
+		const applications = store.applications
+			.sort(
+				(first, second) =>
+					second.date.localeCompare(first.date) ||
+					second.createdAt.localeCompare(first.createdAt),
+			)
+			.slice(0, 500);
+		res.json(applications.map(publicApplication));
+	} catch (error) {
+		next(error);
+	}
+});
+
+app.put('/apps/import', async (req, res, next) => {
+	const inputApplications = Array.isArray(req.body)
+		? req.body
+		: req.body?.applications;
+	if (!Array.isArray(inputApplications)) {
+		return res.status(400).json({
+			error: 'JSON must be an application array or an object with an applications array.',
+		});
+	}
+	if (inputApplications.length > 500) {
+		return res.status(400).json({ error: 'JSON files can contain at most 500 applications.' });
+	}
+
+	const importedIds = new Set();
+	const importedSourceIds = new Set();
+	const importedApplications = [];
+	for (const [index, item] of inputApplications.entries()) {
+		const row = index + 1;
+		const company = cleanText(item?.company, 120);
+		const role = cleanText(item?.role, 120);
+		const status = item?.status;
+		const date = item?.date;
+		if (!company || !role || !validStatuses.includes(status) || !validDate(date)) {
+			return res.status(400).json({
+				error: `Application ${row} must include a company, role, valid status, and date (YYYY-MM-DD).`,
+			});
+		}
+		if (item.company.length > 120 || item.role.length > 120) {
+			return res.status(400).json({
+				error: `Application ${row} company and role must be 120 characters or fewer.`,
+			});
+		}
+
+		const id = item.id === undefined ? randomUUID() : item.id;
+		if (
+			typeof id !== 'string' ||
+			!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id) ||
+			importedIds.has(id)
+		) {
+			return res.status(400).json({
+				error: `Application ${row} has an invalid or duplicate ID.`,
+			});
+		}
+		importedIds.add(id);
+
+		const sourceId = item.sourceId;
+		if (
+			sourceId !== undefined &&
+			(typeof sourceId !== 'string' ||
+				!sourceId.trim() ||
+				sourceId.length > 200 ||
+				importedSourceIds.has(sourceId))
+		) {
+			return res.status(400).json({
+				error: `Application ${row} has an invalid or duplicate source ID.`,
+			});
+		}
+		if (sourceId !== undefined) importedSourceIds.add(sourceId);
+
+		const createdAt = item.createdAt === undefined ? `${date}T00:00:00.000Z` : item.createdAt;
+		if (typeof createdAt !== 'string' || !Number.isFinite(Date.parse(createdAt))) {
+			return res.status(400).json({
+				error: `Application ${row} has an invalid createdAt timestamp.`,
+			});
+		}
+
+		importedApplications.push({
+			id,
+			company,
+			role,
+			status,
+			date,
+			createdAt,
+			...(sourceId === undefined ? {} : { sourceId }),
+		});
+	}
+
+	try {
+		await updateStore(store => {
+			store.applications = importedApplications;
+		});
+		res.json({ imported: importedApplications.length });
+	} catch (error) {
+		next(error);
+	}
 });
 
 app.post('/apps', async (req, res, next) => {
-  const rawCompany = req.body?.company;
-  const rawRole = req.body?.role;
-  const company = cleanText(rawCompany, 120);
-  const role = cleanText(rawRole, 120);
-  const status = req.body?.status === undefined ? 'Applied' : req.body.status;
-  const date = req.body?.date;
-  const sourceId = cleanText(req.body?.sourceId, 200);
+	const rawCompany = req.body?.company;
+	const rawRole = req.body?.role;
+	const company = cleanText(rawCompany, 120);
+	const role = cleanText(rawRole, 120);
+	const status = req.body?.status === undefined ? 'Applied' : req.body.status;
+	const date = req.body?.date;
+	const sourceId = cleanText(req.body?.sourceId, 200);
 
-  if (typeof rawCompany !== 'string' || typeof rawRole !== 'string' || !company || !role) {
-    return res.status(400).json({ error: 'Company and role are required.' });
-  }
-  if (rawCompany.length > 120 || rawRole.length > 120) {
-    return res.status(400).json({ error: 'Company and role must be 120 characters or fewer.' });
-  }
-  if (!validStatuses.includes(status)) {
-    return res.status(400).json({ error: 'Status must be Applied, Interviewing, or Rejected.' });
-  }
-  if (!validDate(date)) {
-    return res.status(400).json({ error: 'Date must be a valid YYYY-MM-DD date.' });
-  }
-  if (req.body?.sourceId !== undefined &&
-      (typeof req.body.sourceId !== 'string' || !req.body.sourceId.trim() || req.body.sourceId.length > 200)) {
-    return res.status(400).json({ error: 'Invalid source ID.' });
-  }
+	if (
+		typeof rawCompany !== 'string' ||
+		typeof rawRole !== 'string' ||
+		!company ||
+		!role
+	) {
+		return res.status(400).json({ error: 'Company and role are required.' });
+	}
+	if (rawCompany.length > 120 || rawRole.length > 120) {
+		return res
+			.status(400)
+			.json({ error: 'Company and role must be 120 characters or fewer.' });
+	}
+	if (!validStatuses.includes(status)) {
+		return res
+			.status(400)
+			.json({ error: 'Status must be Applied, Interviewing, or Rejected.' });
+	}
+	if (!validDate(date)) {
+		return res
+			.status(400)
+			.json({ error: 'Date must be a valid YYYY-MM-DD date.' });
+	}
+	if (
+		req.body?.sourceId !== undefined &&
+		(typeof req.body.sourceId !== 'string' ||
+			!req.body.sourceId.trim() ||
+			req.body.sourceId.length > 200)
+	) {
+		return res.status(400).json({ error: 'Invalid source ID.' });
+	}
 
-  try {
-    const fields = { company, role, status, date };
-    if (sourceId) fields.sourceId = sourceId;
+	try {
+		let created = true;
+		const application = await updateStore((store) => {
+			if (sourceId) {
+				const existing = store.applications.find(
+					(item) => item.sourceId === sourceId,
+				);
+				if (existing) {
+					created = false;
+					return existing;
+				}
+			}
 
-    let application;
-    let created = true;
-    if (sourceId) {
-      application = await Application.findOne({ sourceId });
-      if (application) {
-        created = false;
-      } else {
-        try {
-          application = await Application.create(fields);
-        } catch (error) {
-          if (error.code !== 11000) throw error;
-          application = await Application.findOne({ sourceId });
-          if (!application) throw error;
-          created = false;
-        }
-      }
-    } else {
-      application = await Application.create(fields);
-    }
+			const newApplication = {
+				id: randomUUID(),
+				company,
+				role,
+				status,
+				date,
+				createdAt: new Date().toISOString(),
+			};
+			if (sourceId) newApplication.sourceId = sourceId;
+			store.applications.push(newApplication);
+			return newApplication;
+		});
 
-    const result = publicApplication(application);
-    if (created) {
-      await updateRedisCounters(application, 1);
-      broadcast({ type: 'application.created', application: result });
-    }
-    res.status(created ? 201 : 200).json({ application: result, created });
-  } catch (error) {
-    next(error);
-  }
+		const result = publicApplication(application);
+		res.status(created ? 201 : 200).json({ application: result, created });
+	} catch (error) {
+		next(error);
+	}
+});
+
+app.put('/apps/:id', async (req, res, next) => {
+	const { id } = req.params;
+	const rawCompany = req.body?.company;
+	const rawRole = req.body?.role;
+	const company = cleanText(rawCompany, 120);
+	const role = cleanText(rawRole, 120);
+	const { status, date } = req.body ?? {};
+
+	if (
+		!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+			id,
+		)
+	) {
+		return res.status(400).json({ error: 'Invalid application ID.' });
+	}
+	if (
+		typeof rawCompany !== 'string' ||
+		typeof rawRole !== 'string' ||
+		!company ||
+		!role
+	) {
+		return res.status(400).json({ error: 'Company and role are required.' });
+	}
+	if (rawCompany.length > 120 || rawRole.length > 120) {
+		return res
+			.status(400)
+			.json({ error: 'Company and role must be 120 characters or fewer.' });
+	}
+	if (!validStatuses.includes(status)) {
+		return res
+			.status(400)
+			.json({ error: 'Status must be Applied, Interviewing, or Rejected.' });
+	}
+	if (!validDate(date)) {
+		return res
+			.status(400)
+			.json({ error: 'Date must be a valid YYYY-MM-DD date.' });
+	}
+
+	try {
+		const application = await updateStore((store) => {
+			const found = store.applications.find((item) => item.id === id);
+			if (!found) return null;
+			found.company = company;
+			found.role = role;
+			found.status = status;
+			found.date = date;
+			return found;
+		});
+		if (!application)
+			return res.status(404).json({ error: 'Application not found.' });
+
+		res.json({ application: publicApplication(application) });
+	} catch (error) {
+		next(error);
+	}
 });
 
 app.patch('/apps/:id/status', async (req, res, next) => {
-  const { id } = req.params;
-  const { status } = req.body ?? {};
-  if (!mongoose.isValidObjectId(id)) {
-    return res.status(400).json({ error: 'Invalid application ID.' });
-  }
-  if (!validStatuses.includes(status)) {
-    return res.status(400).json({ error: 'Status must be Applied, Interviewing, or Rejected.' });
-  }
+	const { id } = req.params;
+	const { status } = req.body ?? {};
+	if (
+		!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+			id,
+		)
+	) {
+		return res.status(400).json({ error: 'Invalid application ID.' });
+	}
+	if (!validStatuses.includes(status)) {
+		return res
+			.status(400)
+			.json({ error: 'Status must be Applied, Interviewing, or Rejected.' });
+	}
 
-  try {
-    const application = await Application.findById(id);
-    if (!application) return res.status(404).json({ error: 'Application not found.' });
-    const previousStatus = application.status;
-    application.status = status;
-    await application.save();
+	try {
+		const application = await updateStore((store) => {
+			const found = store.applications.find((item) => item.id === id);
+			if (!found) return null;
+			found.status = status;
+			return found;
+		});
+		if (!application)
+			return res.status(404).json({ error: 'Application not found.' });
 
-    if (previousStatus !== status) {
-      const multi = redisClient.multi();
-      multi.incrBy(`stats:${previousStatus.toLowerCase()}`, -1);
-      multi.incrBy(`stats:${status.toLowerCase()}`, 1);
-      try {
-        await multi.exec();
-      } catch (error) {
-        countersNeedRebuild = true;
-        throw error;
-      }
-      broadcast({ type: 'application.updated', application: publicApplication(application) });
-    }
-    res.json({ application: publicApplication(application) });
-  } catch (error) {
-    next(error);
-  }
+		res.json({ application: publicApplication(application) });
+	} catch (error) {
+		next(error);
+	}
 });
 
 app.post('/sync-checkpoint', async (req, res, next) => {
-  const timestamp = req.body?.timestamp;
-  if (!Number.isSafeInteger(timestamp) || timestamp <= 0 || timestamp > Math.floor(Date.now() / 1000)) {
-    return res.status(400).json({ error: 'Timestamp must be a valid Unix timestamp in seconds.' });
-  }
+	const timestamp = req.body?.timestamp;
+	if (
+		!Number.isSafeInteger(timestamp) ||
+		timestamp <= 0 ||
+		timestamp > Math.floor(Date.now() / 1000)
+	) {
+		return res
+			.status(400)
+			.json({ error: 'Timestamp must be a valid Unix timestamp in seconds.' });
+	}
 
-  try {
-    const lastSyncAt = new Date(timestamp * 1000);
-    await SyncState.findByIdAndUpdate(
-      'gmail',
-      { $max: { lastSyncAt } },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
-    );
-    res.json({ last_sync_timestamp: timestamp });
-  } catch (error) {
-    next(error);
-  }
+	try {
+		const lastSyncAt = new Date(timestamp * 1000).toISOString();
+		const savedTimestamp = await updateStore((store) => {
+			if (
+				store.lastSyncAt === null ||
+				Date.parse(store.lastSyncAt) < Date.parse(lastSyncAt)
+			) {
+				store.lastSyncAt = lastSyncAt;
+			}
+			return Math.floor(Date.parse(store.lastSyncAt) / 1000);
+		});
+		res.json({ last_sync_timestamp: savedTimestamp });
+	} catch (error) {
+		next(error);
+	}
 });
 
 app.use((req, res) => {
-  res.status(404).json({ error: 'Not found.' });
+	res.status(404).json({ error: 'Not found.' });
 });
 
 app.use((error, req, res, next) => {
-  if (res.headersSent) return next(error);
-  if (error instanceof SyntaxError && error.status === 400 && 'body' in error) {
-    return res.status(400).json({ error: 'Request body must be valid JSON.' });
-  }
-  if (error.status === 413) {
-    return res.status(413).json({ error: 'Request body exceeds the 12 KB limit.' });
-  }
-  console.error('Request failed:', error);
-  res.status(500).json({ error: 'The request could not be completed.' });
+	if (res.headersSent) return next(error);
+	if (error instanceof SyntaxError && error.status === 400 && 'body' in error) {
+		return res.status(400).json({ error: 'Request body must be valid JSON.' });
+	}
+	if (error.status === 413) {
+		return res
+			.status(413)
+			.json({ error: 'Request body exceeds the 12 KB limit.' });
+	}
+	console.error('Request failed:', error);
+	res.status(500).json({ error: 'The request could not be completed.' });
 });
 
-async function rebuildRedisCounters() {
-  const counts = await Application.aggregate([
-    { $group: { _id: '$status', count: { $sum: 1 } } },
-  ]);
-  const values = { total: 0, applied: 0, interviewing: 0, rejected: 0 };
-  for (const item of counts) {
-    const status = item._id.toLowerCase();
-    values[status] = item.count;
-    values.total += item.count;
-  }
-  const multi = redisClient.multi();
-  for (const [key, value] of Object.entries(values)) multi.set(`stats:${key}`, value);
-  await multi.exec();
-  countersNeedRebuild = false;
-}
-
 async function start() {
-  try {
-    const mongoUrl = process.env.MONGO_URL || 'mongodb://127.0.0.1:27017/jobtracker';
-    await Promise.all([mongoose.connect(mongoUrl), redisClient.connect()]);
-    await Application.init();
-    await rebuildRedisCounters();
-    console.log('MongoDB and Redis are connected.');
-    const onListening = () => console.log(`Job tracker listening on http://${host}:3000`);
-    server = process.env.HOST
-      ? app.listen(3000, process.env.HOST, onListening)
-      : app.listen(3000, '127.0.0.1', onListening);
-    webSocketServer = new WebSocketServer({
-      server,
-      verifyClient: ({ origin }) => origin === 'http://127.0.0.1:3000' || origin === 'http://localhost:3000',
-    });
-    webSocketServer.on('connection', socket => {
-      socket.on('error', error => console.error('WebSocket client error:', error));
-    });
-  } catch (error) {
-    console.error('Unable to start job tracker:', error);
-    process.exitCode = 1;
-    await Promise.allSettled([
-      mongoose.disconnect(),
-      redisClient.isOpen ? redisClient.quit() : Promise.resolve(),
-    ]);
-  }
+	try {
+		await mkdir(dataDirectory, { recursive: true });
+		await updateStore((store) => store);
+		server = app.listen(port, host, () => {
+			console.log(`Job tracker listening on http://${host}:${port}`);
+			console.log(`Application data stored in ${dataFile}`);
+		});
+	} catch (error) {
+		console.error('Unable to start job tracker:', error);
+		process.exitCode = 1;
+	}
 }
 
 let shuttingDown = false;
-async function shutdown() {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  webSocketServer?.close();
-  if (server) {
-    server.close(error => {
-      if (error) {
-        console.error('HTTP server shutdown failed:', error);
-        process.exitCode = 1;
-      }
-    });
-  }
-  await Promise.allSettled([
-    mongoose.disconnect(),
-    redisClient.isOpen ? redisClient.quit() : Promise.resolve(),
-  ]);
+function shutdown() {
+	if (shuttingDown) return;
+	shuttingDown = true;
+	if (server) {
+		server.close((error) => {
+			if (error) {
+				console.error('HTTP server shutdown failed:', error);
+				process.exitCode = 1;
+			}
+		});
+	}
 }
 
 process.on('SIGINT', shutdown);
