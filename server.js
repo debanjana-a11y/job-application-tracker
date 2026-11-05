@@ -727,6 +727,30 @@ app.put('/apps/:id', async (req, res, next) => {
 	}
 });
 
+app.delete('/apps/:id', async (req, res, next) => {
+	const { id } = req.params;
+	if (
+		!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+			id,
+		)
+	) {
+		return res.status(400).json({ error: 'Invalid application ID.' });
+	}
+
+	try {
+		const deleted = await updateStore((store) => {
+			const index = store.applications.findIndex((item) => item.id === id);
+			if (index === -1) return false;
+			store.applications.splice(index, 1);
+			return true;
+		});
+		if (!deleted) return res.status(404).json({ error: 'Application not found.' });
+		res.status(204).end();
+	} catch (error) {
+		next(error);
+	}
+});
+
 app.patch('/apps/:id/status', async (req, res, next) => {
 	const { id } = req.params;
 	const { status } = req.body ?? {};

@@ -38,7 +38,7 @@ python -m uvicorn app:app --app-dir python --host 127.0.0.1 --port 8000
 
 On Linux or macOS, use `source .venv/bin/activate` instead of the PowerShell activation command. Set `OLLAMA_BASE_URL` and `OLLAMA_MODEL` if Ollama uses a different address or model. The confidence threshold defaults to `0.85`; related emails below it receive `Review`.
 
-To enable Gmail sync, enter a Google OAuth Web application client ID in Settings and allow the page's origin. The app requests read-only Gmail access; its access token stays in the browser tab's memory. Sync searches matching phrases in Gmail's Updates category from the last 30 days or since the last successful sync, whichever is more recent. Candidate messages are sent to the local classifier in batches of up to 20; each batch is classified in one Ollama request. Unrelated messages are ignored, and related messages update the application for that company and role. Sync never modifies or deletes email.
+To enable Gmail sync, enter a Google OAuth Web application client ID in Settings and allow the page's origin. The app requests read-only Gmail access; its access token stays in the browser tab's memory. Every sync searches all messages in Gmail's Updates category from the last 30 days, allowing previously missed messages to be reconsidered. Messages are sent to the local classifier in batches of up to 20, with each email classified separately. Already-tracked messages are deduplicated, unrelated messages are ignored, and related messages update the application for that company and role. Sync never modifies or deletes email.
 
 ## Run with Docker Compose
 

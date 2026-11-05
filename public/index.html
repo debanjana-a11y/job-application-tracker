@@ -345,6 +345,7 @@
                   <th scope="col" class="px-4 py-3.5 font-medium">Date</th>
                   <th scope="col" class="px-4 py-3.5 font-medium">Status</th>
                   <th scope="col" class="px-5 py-3.5 font-medium sm:px-7">Update</th>
+                  <th scope="col" class="px-5 py-3.5 font-medium sm:px-7"><span class="sr-only">Delete</span></th>
                 </tr>
               </thead>
               <tbody id="application-list" class="divide-y divide-zinc-800/80"></tbody>
@@ -730,6 +731,40 @@
           controls.append(select, editButton);
           updateCell.append(controls);
           row.append(updateCell);
+
+          const deleteCell = document.createElement('td');
+          deleteCell.className = 'px-5 py-4 text-right sm:px-7';
+          const deleteButton = document.createElement('button');
+          deleteButton.type = 'button';
+          deleteButton.className = 'inline-flex rounded-lg border border-zinc-700 p-2 text-zinc-400 hover:border-red-500/40 hover:text-red-400 focus:outline-none focus:ring-2 focus:ring-red-500/40 disabled:cursor-wait disabled:opacity-60';
+          deleteButton.setAttribute('aria-label', `Delete ${application.company} — ${application.role}`);
+          deleteButton.title = 'Delete application';
+          const deleteIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+          deleteIcon.setAttribute('viewBox', '0 0 24 24');
+          deleteIcon.setAttribute('fill', 'none');
+          deleteIcon.setAttribute('stroke', 'currentColor');
+          deleteIcon.setAttribute('stroke-width', '1.8');
+          deleteIcon.setAttribute('aria-hidden', 'true');
+          deleteIcon.classList.add('h-4', 'w-4');
+          const deletePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          deletePath.setAttribute('stroke-linecap', 'round');
+          deletePath.setAttribute('stroke-linejoin', 'round');
+          deletePath.setAttribute('d', 'M9 3h6m-9 4h12m-10 0 .7 13h6.6L16 7M10 11v5m4-5v5');
+          deleteIcon.append(deletePath);
+          deleteButton.append(deleteIcon);
+          deleteButton.addEventListener('click', async () => {
+            if (!window.confirm(`Delete ${application.company} — ${application.role}? This cannot be undone.`)) return;
+            deleteButton.disabled = true;
+            try {
+              await request(`/apps/${encodeURIComponent(application.id)}`, { method: 'DELETE' });
+              await loadDashboard();
+            } catch (error) {
+              showMessage(pageError, error.message, true);
+              deleteButton.disabled = false;
+            }
+          });
+          deleteCell.append(deleteButton);
+          row.append(deleteCell);
           applicationList.append(row);
         }
       }
@@ -882,13 +917,17 @@
         return [current, ...(part.parts || []).map(extractHtmlText)].filter(Boolean).join('\n');
       }
 
+      function removeLinks(text) {
+        return text.replace(/\b(?:https?:\/\/|www\.)[^\s<>"']+/gi, '');
+      }
+
       function htmlToPlainText(html) {
         const withLineBreaks = html
           .replace(/<br\s*\/?>/gi, '\n')
           .replace(/<\/(?:p|div|li|tr|h[1-6])\s*>/gi, '\n');
         const document = new DOMParser().parseFromString(withLineBreaks, 'text/html');
-        document.querySelectorAll('script, style').forEach(element => element.remove());
-        return document.body.textContent || '';
+        document.querySelectorAll('a, script, style').forEach(element => element.remove());
+        return removeLinks(document.body.textContent || '');
       }
 
       function headerValue(headers, name) {
@@ -955,14 +994,8 @@
         let ignored = 0;
         let classified = 0;
         try {
-          const stats = await request('/stats');
           const thirtyDaysAgo = startedAt - (30 * 24 * 60 * 60);
-          const afterTimestamp = Math.max(stats.last_sync_timestamp || 0, thirtyDaysAgo);
-          const query = [
-            'category:updates',
-            `after:${afterTimestamp}`,
-            '{ "thank you for applying" "thanks for applying" "application received" "received your application" "confirming your application" "application submitted" "application was submitted" "regret to inform" "not moving forward" "not selected" "application was unsuccessful" "application has been unsuccessful" "application was rejected" "application has been rejected" "decided not to proceed" "will not be moving forward" "won\'t be moving forward" "move forward with other candidates" "proceed with other candidates" "position has been filled" "invite you to interview" "invited to interview" "interview invitation" "schedule an interview" "scheduled an interview" "technical assessment" "next round interview" }',
-          ].join(' ');
+          const query = `category:updates after:${thirtyDaysAgo} {"Application" "Interview" -"job alert"}`;
           let pageToken = null;
 
           do {
@@ -976,7 +1009,11 @@
               const sender = headerValue(headers, 'From');
               const plainBody = extractPlainText(detail.payload);
               const htmlBody = extractHtmlText(detail.payload);
-              const body = plainBody || (htmlBody ? htmlToPlainText(htmlBody) : detail.snippet || '');
+              const body = plainBody
+                ? removeLinks(plainBody)
+                : htmlBody
+                  ? htmlToPlainText(htmlBody)
+                  : removeLinks(detail.snippet || '');
               const emailTimestamp = Number(detail.internalDate) || Date.now();
               const emailDate = new Date(emailTimestamp);
               const date = Number.isNaN(emailDate.getTime()) ? new Date().toISOString().slice(0, 10) : emailDate.toISOString().slice(0, 10);
