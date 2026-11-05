@@ -876,6 +876,21 @@
         return [current, ...(part.parts || []).map(extractPlainText)].filter(Boolean).join('\n');
       }
 
+      function extractHtmlText(part) {
+        if (!part) return '';
+        const current = part.mimeType === 'text/html' ? decodeBody(part.body?.data) : '';
+        return [current, ...(part.parts || []).map(extractHtmlText)].filter(Boolean).join('\n');
+      }
+
+      function htmlToPlainText(html) {
+        const withLineBreaks = html
+          .replace(/<br\s*\/?>/gi, '\n')
+          .replace(/<\/(?:p|div|li|tr|h[1-6])\s*>/gi, '\n');
+        const document = new DOMParser().parseFromString(withLineBreaks, 'text/html');
+        document.querySelectorAll('script, style').forEach(element => element.remove());
+        return document.body.textContent || '';
+      }
+
       function headerValue(headers, name) {
         return headers?.find(header => header.name?.toLowerCase() === name.toLowerCase())?.value || '';
       }
@@ -937,6 +952,8 @@
         let added = 0;
         let updated = 0;
         let alreadyTracked = 0;
+        let ignored = 0;
+        let classified = 0;
         try {
           const stats = await request('/stats');
           const thirtyDaysAgo = startedAt - (30 * 24 * 60 * 60);
@@ -949,21 +966,33 @@
           let pageToken = null;
 
           do {
-            const params = new URLSearchParams({ q: query, maxResults: '100' });
+            const params = new URLSearchParams({ q: query, maxResults: '20' });
             if (pageToken) params.set('pageToken', pageToken);
             const listing = await gmailRequest(`messages?${params}`);
-            for (const message of listing.messages || []) {
+            const emails = await Promise.all((listing.messages || []).map(async message => {
               const detail = await gmailRequest(`messages/${encodeURIComponent(message.id)}?format=full`);
               const headers = detail.payload?.headers || [];
               const subject = headerValue(headers, 'Subject') || 'Job application';
               const sender = headerValue(headers, 'From');
-              const body = extractPlainText(detail.payload) || detail.snippet || '';
-              const status = statusFromMessage(`${subject}\n${body}`);
-              if (!status) continue;
+              const plainBody = extractPlainText(detail.payload);
+              const htmlBody = extractHtmlText(detail.payload);
+              const body = plainBody || (htmlBody ? htmlToPlainText(htmlBody) : detail.snippet || '');
               const emailTimestamp = Number(detail.internalDate) || Date.now();
               const emailDate = new Date(emailTimestamp);
               const date = Number.isNaN(emailDate.getTime()) ? new Date().toISOString().slice(0, 10) : emailDate.toISOString().slice(0, 10);
               const cleanSubject = subject.replace(/^(re|fwd?):\s*/i, '');
+              return {
+                email_id: message.id,
+                sender,
+                subject: cleanSubject,
+                body_snippet: body,
+                date,
+                email_timestamp: emailTimestamp,
+              };
+
+              /*
+              const status = statusFromMessage(`${subject}\n${body}`);
+              if (!status) continue;
               const result = await request('/apps/gmail-sync', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -979,6 +1008,27 @@
               if (result.created) added += 1;
               else if (result.updated) updated += 1;
               else alreadyTracked += 1;
+              */
+            }));
+            if (emails.length) {
+              showMessage(syncMessage, `Classifying a batch of ${emails.length} Gmail messages...`);
+              const batch = await request('/gmail/reconcile-emails', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ emails }),
+              });
+              if (!Array.isArray(batch.results) || batch.results.length !== emails.length) {
+                throw new Error('Email classifier returned an incomplete batch response.');
+              }
+              for (const result of batch.results) {
+                if (result.action === 'created') added += 1;
+                else if (result.action === 'updated') updated += 1;
+                else if (result.action === 'ignored') ignored += 1;
+                else if (result.action === 'already_tracked') alreadyTracked += 1;
+                else throw new Error('Email classifier returned an unknown sync action.');
+              }
+              classified += emails.length;
+              showMessage(syncMessage, `Classified ${classified} Gmail messages...`);
             }
             pageToken = listing.nextPageToken || null;
           } while (pageToken);
@@ -990,7 +1040,7 @@
             body: JSON.stringify({ timestamp: checkpoint }),
           });
           await loadDashboard();
-          showMessage(syncMessage, `Sync complete: ${added} added, ${updated} updated, ${alreadyTracked} already tracked.`);
+          showMessage(syncMessage, `Sync complete: ${added} added, ${updated} updated, ${alreadyTracked} already tracked, ${ignored} unrelated ignored.`);
         } catch (error) {
           showMessage(syncMessage, `Gmail sync did not complete; its checkpoint was not advanced. ${error.message}`, true);
         } finally {

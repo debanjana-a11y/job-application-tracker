@@ -13,7 +13,16 @@ const dataDirectory = path.resolve(
 	process.env.DATA_DIR || fileURLToPath(new URL('./data/', import.meta.url)),
 );
 const dataFile = path.join(dataDirectory, 'applications.json');
-const validStatuses = ['Applied', 'Interviewing', 'Rejected'];
+const classifierUrl = process.env.CLASSIFIER_URL || 'http://127.0.0.1:8000';
+const classifierReviewThreshold = Number(process.env.CLASSIFIER_REVIEW_THRESHOLD ?? 0.85);
+if (
+	!Number.isFinite(classifierReviewThreshold) ||
+	classifierReviewThreshold < 0 ||
+	classifierReviewThreshold > 1
+) {
+	throw new Error('CLASSIFIER_REVIEW_THRESHOLD must be a number from 0 to 1.');
+}
+const validStatuses = ['Applied', 'Interviewing', 'Rejected', 'Review'];
 const app = express();
 let server;
 let storeQueue = Promise.resolve();
@@ -28,6 +37,7 @@ app.use((req, res, next) => {
 	});
 	next();
 });
+app.use('/gmail/reconcile-emails', express.json({ limit: '10mb', strict: true }));
 app.use('/apps/import', express.json({ limit: '2mb', strict: true }));
 app.use(express.json({ limit: '12kb', strict: true }));
 app.use(express.static(publicDirectory, { index: 'index.html' }));
@@ -150,6 +160,138 @@ function gmailApplicationSourceId(company, role) {
 	return `gmail-application:${hash}`;
 }
 
+async function saveGmailApplication({ company, role, status, date, messageId, emailTimestamp }) {
+	return updateStore(store => {
+		const alreadyImported = store.applications.find(
+			item =>
+				item.sourceId === `gmail:${messageId}` ||
+				item.gmailMessageIds?.includes(messageId),
+		);
+		if (alreadyImported) {
+			const gmailMessageIds = Array.isArray(alreadyImported.gmailMessageIds)
+				? alreadyImported.gmailMessageIds
+				: [];
+			if (
+				alreadyImported.sourceId === `gmail:${messageId}` &&
+				!gmailMessageIds.includes(messageId)
+			) {
+				gmailMessageIds.push(messageId);
+			}
+			const otherMessageIds = gmailMessageIds.filter(id => id !== messageId);
+			const sourceUpdatedAt = Number(alreadyImported.sourceUpdatedAt) ||
+				Date.parse(`${alreadyImported.date}T00:00:00.000Z`);
+			const isNewerMessage = emailTimestamp >= sourceUpdatedAt;
+			const matchesApplication =
+				alreadyImported.company.trim().toLowerCase() === company.toLowerCase() &&
+				(alreadyImported.role.trim().toLowerCase() === role.toLowerCase() ||
+					alreadyImported.role.trim().toLowerCase() === 'n/a' ||
+					role.toLowerCase() === 'n/a');
+
+			if (matchesApplication || otherMessageIds.length === 0) {
+				const nextRole =
+					alreadyImported.role.trim().toLowerCase() === 'n/a' && role.toLowerCase() !== 'n/a'
+						? role
+						: role.toLowerCase() === 'n/a'
+							? alreadyImported.role
+							: role;
+				const changed =
+					alreadyImported.company !== company ||
+					alreadyImported.role !== nextRole ||
+					alreadyImported.status !== status ||
+					alreadyImported.date !== date;
+				if (isNewerMessage) {
+					alreadyImported.company = company;
+					alreadyImported.role = nextRole;
+					alreadyImported.sourceId = gmailApplicationSourceId(company, nextRole);
+					alreadyImported.gmailMessageIds = gmailMessageIds;
+					alreadyImported.status = status;
+					alreadyImported.date = date;
+					alreadyImported.sourceUpdatedAt = emailTimestamp;
+				} else {
+					alreadyImported.gmailMessageIds = gmailMessageIds;
+				}
+				return {
+					application: alreadyImported,
+					created: false,
+					updated: changed && isNewerMessage,
+				};
+			}
+
+			alreadyImported.gmailMessageIds = otherMessageIds;
+			alreadyImported.sourceId = gmailApplicationSourceId(
+				alreadyImported.company,
+				alreadyImported.role,
+			);
+		}
+
+		let sourceId = gmailApplicationSourceId(company, role);
+		let existing = store.applications.find(item => item.sourceId === sourceId);
+		if (!existing) {
+			const candidates = store.applications.filter(
+				item =>
+					typeof item.sourceId === 'string' &&
+					(item.sourceId.startsWith('gmail:') ||
+						item.sourceId.startsWith('gmail-application:')) &&
+					item.company.trim().toLowerCase() === company.toLowerCase() &&
+					(item.role.trim().toLowerCase() === role.toLowerCase() ||
+						item.role.trim().toLowerCase() === 'n/a' ||
+						role.toLowerCase() === 'n/a'),
+			);
+			if (candidates.length === 1) existing = candidates[0];
+		}
+
+		if (!existing) {
+			const created = {
+				id: randomUUID(),
+				company,
+				role,
+				status,
+				date,
+				createdAt: new Date().toISOString(),
+				sourceId,
+				gmailMessageIds: [messageId],
+				sourceUpdatedAt: emailTimestamp,
+			};
+			store.applications.push(created);
+			return { application: created, created: true, updated: false };
+		}
+
+		const gmailMessageIds = Array.isArray(existing.gmailMessageIds)
+			? existing.gmailMessageIds
+			: [];
+		if (
+			existing.sourceId.startsWith('gmail:') &&
+			!gmailMessageIds.includes(existing.sourceId.slice('gmail:'.length))
+		) {
+			gmailMessageIds.push(existing.sourceId.slice('gmail:'.length));
+		}
+		gmailMessageIds.push(messageId);
+
+		const sourceUpdatedAt = Number(existing.sourceUpdatedAt) ||
+			Date.parse(`${existing.date}T00:00:00.000Z`);
+		const isNewerMessage = emailTimestamp >= sourceUpdatedAt;
+		const nextRole =
+			existing.role.trim().toLowerCase() === 'n/a' && role.toLowerCase() !== 'n/a'
+				? role
+				: existing.role;
+		sourceId = gmailApplicationSourceId(company, nextRole);
+		existing.company = company;
+		existing.role = nextRole;
+		existing.sourceId = sourceId;
+		existing.gmailMessageIds = gmailMessageIds;
+		if (isNewerMessage) {
+			existing.status = status;
+			existing.date = date;
+			existing.sourceUpdatedAt = emailTimestamp;
+		}
+		return {
+			application: existing,
+			created: false,
+			updated: isNewerMessage,
+		};
+	});
+}
+
 app.post('/apps/gmail-sync', async (req, res, next) => {
 	const company = cleanText(req.body?.company, 120);
 	const role = cleanText(req.body?.role, 120);
@@ -173,81 +315,13 @@ app.post('/apps/gmail-sync', async (req, res, next) => {
 	}
 
 	try {
-		const application = await updateStore(store => {
-			const alreadyImported = store.applications.find(
-				item =>
-					item.sourceId === `gmail:${messageId}` ||
-					item.gmailMessageIds?.includes(messageId),
-			);
-			if (alreadyImported) {
-				return { application: alreadyImported, created: false, updated: false };
-			}
-
-			let sourceId = gmailApplicationSourceId(company, role);
-			let existing = store.applications.find(item => item.sourceId === sourceId);
-			if (!existing) {
-				const candidates = store.applications.filter(
-					item =>
-						typeof item.sourceId === 'string' &&
-						(item.sourceId.startsWith('gmail:') ||
-							item.sourceId.startsWith('gmail-application:')) &&
-						item.company.trim().toLowerCase() === company.toLowerCase() &&
-						(item.role.trim().toLowerCase() === role.toLowerCase() ||
-							item.role.trim().toLowerCase() === 'n/a' ||
-							role.toLowerCase() === 'n/a'),
-				);
-				if (candidates.length === 1) existing = candidates[0];
-			}
-
-			if (!existing) {
-				const created = {
-					id: randomUUID(),
-					company,
-					role,
-					status,
-					date,
-					createdAt: new Date().toISOString(),
-					sourceId,
-					gmailMessageIds: [messageId],
-					sourceUpdatedAt: emailTimestamp,
-				};
-				store.applications.push(created);
-				return { application: created, created: true, updated: false };
-			}
-
-			const gmailMessageIds = Array.isArray(existing.gmailMessageIds)
-				? existing.gmailMessageIds
-				: [];
-			if (
-				existing.sourceId.startsWith('gmail:') &&
-				!gmailMessageIds.includes(existing.sourceId.slice('gmail:'.length))
-			) {
-				gmailMessageIds.push(existing.sourceId.slice('gmail:'.length));
-			}
-			gmailMessageIds.push(messageId);
-
-			const sourceUpdatedAt = Number(existing.sourceUpdatedAt) ||
-				Date.parse(`${existing.date}T00:00:00.000Z`);
-			const isNewerMessage = emailTimestamp >= sourceUpdatedAt;
-			const nextRole =
-				existing.role.trim().toLowerCase() === 'n/a' && role.toLowerCase() !== 'n/a'
-					? role
-					: existing.role;
-			sourceId = gmailApplicationSourceId(company, nextRole);
-			existing.company = company;
-			existing.role = nextRole;
-			existing.sourceId = sourceId;
-			existing.gmailMessageIds = gmailMessageIds;
-			if (isNewerMessage) {
-				existing.status = status;
-				existing.date = date;
-				existing.sourceUpdatedAt = emailTimestamp;
-			}
-			return {
-				application: existing,
-				created: false,
-				updated: isNewerMessage,
-			};
+		const application = await saveGmailApplication({
+			company,
+			role,
+			status,
+			date,
+			messageId,
+			emailTimestamp,
 		});
 		res.json({
 			application: publicApplication(application.application),
@@ -259,10 +333,146 @@ app.post('/apps/gmail-sync', async (req, res, next) => {
 	}
 });
 
+app.post('/gmail/reconcile-emails', async (req, res, next) => {
+	const emails = req.body?.emails;
+	if (!Array.isArray(emails) || emails.length < 1 || emails.length > 20) {
+		return res.status(400).json({ error: 'Provide between 1 and 20 emails to classify.' });
+	}
+
+	const emailIds = new Set();
+	for (const email of emails) {
+		const emailTimestamp = Number(email?.email_timestamp);
+		if (
+			typeof email?.email_id !== 'string' ||
+			!email.email_id.trim() ||
+			email.email_id.length > 200 ||
+			emailIds.has(email.email_id) ||
+			typeof email.sender !== 'string' ||
+			email.sender.length > 500 ||
+			typeof email.subject !== 'string' ||
+			email.subject.length > 1000 ||
+			typeof email.body_snippet !== 'string' ||
+			!validDate(email.date) ||
+			!Number.isSafeInteger(emailTimestamp) ||
+			emailTimestamp <= 0 ||
+			emailTimestamp > Date.now()
+		) {
+			return res.status(400).json({ error: 'Invalid email data in classification batch.' });
+		}
+		emailIds.add(email.email_id);
+	}
+
+	try {
+		const classifierResults = await Promise.all(
+			emails.map(async ({ email_id, sender, subject, body_snippet }) => {
+				const response = await fetch(`${classifierUrl}/api/reconcile-email`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						email_id,
+						sender,
+						subject,
+						body_snippet: body_snippet.replace(/\s+/g, ' ').trim(),
+					}),
+					signal: AbortSignal.timeout(610000),
+				});
+				return { response, classification: await response.json().catch(() => null) };
+			}),
+		);
+		for (const { response, classification } of classifierResults) {
+			if (!response.ok) {
+				console.error(
+					'Email classifier request failed:',
+					response.status,
+					classification?.detail,
+				);
+				return res.status(503).json({
+					error: 'Email classification is unavailable; sync was not completed.',
+				});
+			}
+		}
+
+		const classificationsById = new Map();
+		for (const [index, { classification: item }] of classifierResults.entries()) {
+			if (
+				!item ||
+				typeof item.is_job_related !== 'boolean' ||
+				!validStatuses.includes(item.status) ||
+				typeof item.company !== 'string' ||
+				typeof item.role !== 'string' ||
+				!Number.isFinite(item.confidence) ||
+				item.confidence < 0 ||
+				item.confidence > 1
+			) {
+				console.error('Email classifier returned an invalid response for a batch request.');
+				return res.status(502).json({
+					error: 'Email classifier returned an invalid batch response.',
+				});
+			}
+			classificationsById.set(emails[index].email_id, item);
+		}
+
+		const results = [];
+		for (const email of emails) {
+			const item = classificationsById.get(email.email_id);
+			if (!item.is_job_related) {
+				results.push({ email_id: email.email_id, is_job_related: false, action: 'ignored' });
+				continue;
+			}
+
+			const senderEmail = email.sender.match(/<([^>]+)>/)?.[1] || email.sender;
+			const classifiedCompany = cleanText(item.company, 120);
+			const company = !classifiedCompany || classifiedCompany.toLowerCase() === 'n/a'
+				? cleanText(senderEmail, 120)
+				: classifiedCompany;
+			const role = cleanText(item.role, 120) || 'N/A';
+			if (!company) {
+				console.error('Email classifier returned no company and sender was empty.');
+				return res.status(502).json({
+					error: 'Email classifier returned incomplete application details.',
+				});
+			}
+			const status = item.confidence < classifierReviewThreshold
+				? 'Review'
+				: item.status;
+			const saved = await saveGmailApplication({
+				company,
+				role,
+				status,
+				date: email.date,
+				messageId: email.email_id,
+				emailTimestamp: Number(email.email_timestamp),
+			});
+			results.push({
+				email_id: email.email_id,
+				is_job_related: true,
+				action: saved.created ? 'created' : saved.updated ? 'updated' : 'already_tracked',
+				status: saved.application.status,
+				confidence: item.confidence,
+				application: publicApplication(saved.application),
+			});
+		}
+		res.json({ results });
+	} catch (error) {
+		if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+			return res.status(504).json({
+				error: 'Email batch classification timed out; sync was not completed.',
+			});
+		}
+		if (error instanceof TypeError) {
+			console.error('Unable to reach email classifier:', error.message);
+			return res.status(503).json({
+				error: 'Email classification service is unavailable; sync was not completed.',
+			});
+		}
+		next(error);
+	}
+});
+
 app.get('/stats', async (req, res, next) => {
 	try {
 		const store = await getStore();
-		const counts = { Applied: 0, Interviewing: 0, Rejected: 0 };
+		const counts = { Applied: 0, Interviewing: 0, Rejected: 0, Review: 0 };
 		for (const application of store.applications)
 			counts[application.status] += 1;
 		const lastSync =
@@ -274,6 +484,7 @@ app.get('/stats', async (req, res, next) => {
 			applied: counts.Applied,
 			interviewing: counts.Interviewing,
 			rejected: counts.Rejected,
+			review: counts.Review,
 			last_sync_timestamp: lastSync,
 		});
 	} catch (error) {
@@ -409,7 +620,7 @@ app.post('/apps', async (req, res, next) => {
 	if (!validStatuses.includes(status)) {
 		return res
 			.status(400)
-			.json({ error: 'Status must be Applied, Interviewing, or Rejected.' });
+			.json({ error: 'Status must be Applied, Interviewing, Rejected, or Review.' });
 	}
 	if (!validDate(date)) {
 		return res
@@ -489,7 +700,7 @@ app.put('/apps/:id', async (req, res, next) => {
 	if (!validStatuses.includes(status)) {
 		return res
 			.status(400)
-			.json({ error: 'Status must be Applied, Interviewing, or Rejected.' });
+			.json({ error: 'Status must be Applied, Interviewing, Rejected, or Review.' });
 	}
 	if (!validDate(date)) {
 		return res
@@ -529,7 +740,7 @@ app.patch('/apps/:id/status', async (req, res, next) => {
 	if (!validStatuses.includes(status)) {
 		return res
 			.status(400)
-			.json({ error: 'Status must be Applied, Interviewing, or Rejected.' });
+			.json({ error: 'Status must be Applied, Interviewing, Rejected, or Review.' });
 	}
 
 	try {
@@ -589,7 +800,7 @@ app.use((error, req, res, next) => {
 	if (error.status === 413) {
 		return res
 			.status(413)
-			.json({ error: 'Request body exceeds the 12 KB limit.' });
+			.json({ error: 'Request body exceeds the configured size limit.' });
 	}
 	console.error('Request failed:', error);
 	res.status(500).json({ error: 'The request could not be completed.' });

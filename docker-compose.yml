@@ -6,13 +6,28 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "127.0.0.1:3000:3000"
+      - "0.0.0.0:3000:3000"
     environment:
       HOST: 0.0.0.0
       PORT: 3000
       DATA_DIR: /app/data
+      CLASSIFIER_URL: http://classifier:8000
+      CLASSIFIER_REVIEW_THRESHOLD: ${CLASSIFIER_REVIEW_THRESHOLD:-0.85}
+    depends_on:
+      classifier:
+        condition: service_started
     volumes:
       - application_data:/app/data
+
+  classifier:
+    container_name: job-tracker-classifier
+    build:
+      context: ./python
+      dockerfile: Dockerfile
+    environment:
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:1b}
+      CLASSIFIER_REVIEW_THRESHOLD: ${CLASSIFIER_REVIEW_THRESHOLD:-0.85}
 
 volumes:
   application_data:
