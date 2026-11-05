@@ -94,7 +94,8 @@ async def reconcile_email(
 
   # 2. Structured prompt explicitly instructing company, role, status, and confidence
   prompt = (
-    "Analyze the email below and classify the job application status.\n\n"
+    "Understand the intent of email below, classify the job application vs non-nob application emails and based on that classify the job application status. "
+    "Do not consider recommended or promotion of Jobs\n\n"
     "CRITICAL RULE - COURTESY VS OUTCOME:\n"
     "1. Polite opening statements like 'Thank you for submitting your CV' or"
     " 'We appreciate your interest' are standard courtesy.\n"

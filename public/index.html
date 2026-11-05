@@ -994,8 +994,10 @@
         let ignored = 0;
         let classified = 0;
         try {
+          const stats = await request('/stats');
           const thirtyDaysAgo = startedAt - (30 * 24 * 60 * 60);
-          const query = `category:updates after:${thirtyDaysAgo} {"Application" "Interview" -"job alert"}`;
+          const afterTimestamp = Math.max(stats.last_sync_timestamp || 0, thirtyDaysAgo);
+          const query = `category:updates after:${afterTimestamp} (Application OR Interview) -"job alert" -Recommendations -hiring -"apply now"`;
           let pageToken = null;
 
           do {
