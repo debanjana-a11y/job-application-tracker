@@ -3,7 +3,7 @@ Demo: https://youtu.be/TYtCPTlnQrc
 
 A local job application tracker with three tabs:
 
-- **Home** shows applications grouped by month.
+- **Home** shows applications grouped by month and lets you search by company, role, status, or date.
 - **Pipeline** lists applications, lets you update their status, and provides an edit action.
 - **Settings** lets you add or edit an application manually, import applications from JSON, or sync matching messages from Gmail.
 

@@ -130,6 +130,55 @@
         font-size: 22px;
         font-weight: 600;
       }
+      .timeline-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 18px;
+      }
+      .timeline-heading .timeline-home-title { margin: 0; }
+      .timeline-search {
+        display: flex;
+        gap: 8px;
+        width: min(100%, 360px);
+      }
+      .timeline-search input {
+        min-width: 0;
+        flex: 1;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 8px 11px;
+        background: var(--surface);
+        color: var(--ink);
+        font: inherit;
+        font-size: 13px;
+      }
+      .timeline-search input:focus-visible {
+        border-color: var(--green);
+        outline: 3px solid rgb(82 107 80 / 20%);
+        outline-offset: 1px;
+      }
+      .timeline-search button {
+        border: 1px solid var(--green);
+        border-radius: 8px;
+        padding: 8px 12px;
+        background: var(--green);
+        color: var(--surface);
+        font: inherit;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .timeline-search button:hover { background: var(--green-hover); }
+      .timeline-search button:focus-visible {
+        outline: 3px solid rgb(82 107 80 / 32%);
+        outline-offset: 2px;
+      }
+      @media (max-width: 520px) {
+        .timeline-heading { align-items: stretch; flex-direction: column; }
+        .timeline-search { width: 100%; }
+      }
       .timeline-body {
         flex: 1;
         padding: 0 0 48px;
@@ -315,7 +364,14 @@
 
       <section id="home-panel" class="tab-panel" role="tabpanel" aria-labelledby="home-tab" tabindex="0">
         <section class="timeline-card" aria-labelledby="timeline-title">
-          <h2 id="timeline-title" class="timeline-home-title">Your applications</h2>
+          <div class="timeline-heading">
+            <h2 id="timeline-title" class="timeline-home-title">Your applications</h2>
+            <form id="timeline-search-form" class="timeline-search" role="search">
+              <label class="sr-only" for="timeline-search">Search applications</label>
+              <input id="timeline-search" type="search" placeholder="Search company, role, status, or date">
+              <button type="submit">Search</button>
+            </form>
+          </div>
           <div class="timeline-body">
             <div id="timeline-list" class="timeline-list" aria-live="polite"></div>
             <p id="timeline-empty" class="timeline-empty hidden">No applications yet. Add one in Settings to start your timeline.</p>
@@ -456,6 +512,8 @@
       const form = document.querySelector('#application-form');
       const applicationList = document.querySelector('#application-list');
       const timelineList = document.querySelector('#timeline-list');
+      const timelineSearchForm = document.querySelector('#timeline-search-form');
+      const timelineSearch = document.querySelector('#timeline-search');
       const pageError = document.querySelector('#page-error');
       const formMessage = document.querySelector('#form-message');
       const importForm = document.querySelector('#import-form');
@@ -514,13 +572,27 @@
         return `${day}.${month}.${year}`;
       }
 
+      function matchingTimelineApplications() {
+        const query = timelineSearch.value.trim().toLowerCase();
+        return timelineApplications.filter(application =>
+          [application.company, application.role, application.status, application.date]
+            .some(value => value.toLowerCase().includes(query)),
+        );
+      }
+
       function renderTimeline(applications) {
         timelineApplications = applications;
         timelineList.replaceChildren();
-        document.querySelector('#timeline-empty').classList.toggle('hidden', applications.length !== 0);
+        const query = timelineSearch.value.trim().toLowerCase();
+        const matchingApplications = matchingTimelineApplications();
+        const emptyMessage = document.querySelector('#timeline-empty');
+        emptyMessage.textContent = query
+          ? 'No matching applications. Try a different search.'
+          : 'No applications yet. Add one in Settings to start your timeline.';
+        emptyMessage.classList.toggle('hidden', matchingApplications.length !== 0);
 
         const months = new Map();
-        for (const application of applications) {
+        for (const application of matchingApplications) {
           const monthKey = application.date.slice(0, 7);
           if (!months.has(monthKey)) months.set(monthKey, []);
           months.get(monthKey).push(application);
@@ -621,8 +693,18 @@
         renderTimeline(timelineApplications);
       });
       document.querySelector('#timeline-next').addEventListener('click', () => {
-        if ((timelinePage + 1) * 10 >= timelineApplications.length) return;
+        const matchingCount = matchingTimelineApplications().length;
+        if ((timelinePage + 1) * 10 >= matchingCount) return;
         timelinePage += 1;
+        renderTimeline(timelineApplications);
+      });
+      timelineSearch.addEventListener('input', () => {
+        timelinePage = 0;
+        renderTimeline(timelineApplications);
+      });
+      timelineSearchForm.addEventListener('submit', event => {
+        event.preventDefault();
+        timelinePage = 0;
         renderTimeline(timelineApplications);
       });
 
